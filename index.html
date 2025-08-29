@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Pleb</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
+  <style>
+    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; }
+    * { box-sizing: border-box; }
+    body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(180deg, #0b0e1a, #090c17); color: var(--text); }
+    .wrap { max-width: 900px; margin: 0 auto; padding: 24px; }
+    header { display:flex; align-items:center; justify-content:space-between; gap: 16px; margin-bottom: 16px; }
+    .title { font-size: clamp(20px, 3vw, 28px); font-weight: 700; letter-spacing: 0.3px; }
+    .card { background: var(--card); border: 1px solid #1f2440; border-radius: 16px; box-shadow: 0 10px 30px rgba(0,0,0,.35); overflow: hidden; }
+    .row { display:flex; gap:12px; align-items: center; }
+    .stack { display:grid; gap:12px; }
+    .section { padding: 16px; border-bottom: 1px solid #1f2440; }
+    .section:last-child { border-bottom: 0; }
+    label { font-size: 12px; color: var(--muted); display:block; margin-bottom: 6px; }
+    input[type="text"] { width: 100%; padding: 12px 14px; border-radius: 12px; background: #0e1222; border: 1px solid #262c4f; color: var(--text); outline: none; }
+    input[type="text"]::placeholder { color: #6b7196; }
+    button { padding: 10px 14px; border-radius: 12px; border: 1px solid #2a3163; background: #1b2150; color: var(--text); font-weight: 600; cursor: pointer; transition: transform .05s ease, background .2s; }
+    button:hover { background: #232a6a; }
+    button:active { transform: translateY(1px); }
+    #messages { height: min(62vh, 560px); overflow-y: auto; background: #0b0f20; padding: 8px; border-radius: 12px; border: 1px solid #1b2144; }
+    .msg { display:grid; gap:4px; padding: 10px 12px; background: #0e1329; border: 1px solid #20264a; border-radius: 12px; margin: 8px; }
+    .meta { display:flex; gap:8px; align-items:center; font-size: 12px; color: var(--muted); }
+    .name { font-weight: 700; color: var(--accent); }
+    .time { opacity:.8; }
+    .you { border-color: #2b375f; background: #10183a; }
+    .status { font-size: 12px; color: var(--muted); padding: 4px 8px; background: var(--pill); border: 1px solid #2a3163; border-radius: 999px; }
+    footer { text-align:center; color:#778; font-size: 12px; margin-top: 16px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header>
+      <div class="row" style="gap:10px">
+        <div class="title">😛 Pleb</div>
+        <div id="conn" class="status" title="Connection status">• Connecting…</div>
+      </div>
+      <button id="clearBtn" title="Clear local name only">Reset Name</button>
+    </header>
+
+    <div class="card">
+      <div class="section">
+        <div class="row" style="align-items:flex-end">
+          <div style="flex:1">
+            <label for="displayName">Display name</label>
+            <input id="displayName" type="text" placeholder="e.g., Onion" maxlength="20" />
+          </div>
+          <button id="saveNameBtn">Save</button>
+        </div>
+      </div>
+
+      <div class="section stack">
+        <div id="messages" aria-live="polite" aria-label="Chat messages"></div>
+        <div class="row">
+          <input id="messageInput" type="text" placeholder="Type a message and press Enter…" maxlength="500" />
+          <button id="sendBtn">Send</button>
+        </div>
+      </div>
+    </div>
+
+    <footer>
+      Built with Firebase Realtime Database · Be nice, stay cozy ✨
+    </footer>
+  </div>
+
+  <!-- Firebase + App Script -->
+  <script type="module">
+    // --- Firebase SDKs (v10+) ---
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
+    import { getDatabase, ref, push, serverTimestamp, onChildAdded, limitToLast, query, orderByChild, onDisconnect, onValue } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
+
+    // Your config (provided)
+    const firebaseConfig = {
+      apiKey: "AIzaSyAUhiB3d042QEfM5qWdC5qYGt7hrcqKolc",
+      authDomain: "chatting-6cd81.firebaseapp.com",
+      databaseURL: "https://chatting-6cd81-default-rtdb.firebaseio.com",
+      projectId: "chatting-6cd81",
+      storageBucket: "chatting-6cd81.firebasestorage.app",
+      messagingSenderId: "584471983807",
+      appId: "1:584471983807:web:b71eb2ba2a071d311b380a",
+      measurementId: "G-53H0MM5V6M"
+    };
+
+    // Init
+    const app = initializeApp(firebaseConfig);
+    const db = getDatabase(app);
+
+    // DOM
+    const nameInput = document.getElementById('displayName');
+    const saveNameBtn = document.getElementById('saveNameBtn');
+    const resetBtn = document.getElementById('clearBtn');
+    const msgInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const listEl = document.getElementById('messages');
+    const connEl = document.getElementById('conn');
+
+    // Helpers
+    const STORAGE_KEY = 'protogen_chat_name';
+    const messagesRef = ref(db, 'messages');
+    const presenceRef = ref(db, '.info/connected');
+
+    function saveName() {
+      const val = (nameInput.value || '').trim();
+      if (!val) return alert('Enter a display name first.');
+      localStorage.setItem(STORAGE_KEY, val);
+      flashStatus('Saved!');
+      nameInput.blur();
+    }
+
+    function getName() {
+      return (localStorage.getItem(STORAGE_KEY) || '').trim();
+    }
+
+    function flashStatus(text) {
+      connEl.textContent = text;
+      setTimeout(() => updateConnBadge(), 1200);
+    }
+
+    function updateConnBadge(connected) {
+      if (typeof connected === 'boolean') {
+        connEl.textContent = connected ? '• Online' : '• Offline';
+        return;
+      }
+      // fallback text if not provided
+      connEl.textContent = connEl.textContent.includes('•') ? connEl.textContent : '• Online';
+    }
+
+    function formatTime(ts) {
+      try {
+        const d = new Date(ts);
+        const now = new Date();
+        const sameDay = d.toDateString() === now.toDateString();
+        return sameDay ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : d.toLocaleString();
+      } catch (_) { return '…'; }
+    }
+
+    function msgElement({ name, text, timestamp }) {
+      const me = getName();
+      const root = document.createElement('div');
+      root.className = 'msg' + (name === me ? ' you' : '');
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'name';
+      nameEl.textContent = name || 'anon';
+
+      const dot = document.createElement('span');
+      dot.textContent = '•';
+
+      const timeEl = document.createElement('span');
+      timeEl.className = 'time';
+      timeEl.textContent = timestamp ? formatTime(timestamp) : 'sending…';
+
+      const textEl = document.createElement('div');
+      textEl.textContent = text || '';
+
+      meta.append(nameEl, dot, timeEl);
+      root.append(meta, textEl);
+      return root;
+    }
+
+    function appendAndScroll(el) {
+      listEl.appendChild(el);
+      // Auto-scroll if near bottom
+      const nearBottom = listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 80;
+      if (nearBottom) listEl.scrollTop = listEl.scrollHeight;
+    }
+
+    async function sendMessage() {
+      const name = getName();
+      const text = (msgInput.value || '').trim();
+      if (!name) return alert('Set your display name first!');
+      if (!text) return; // ignore empty
+      msgInput.value = '';
+      msgInput.focus();
+
+      try {
+        await push(messagesRef, {
+          name,
+          text,
+          timestamp: serverTimestamp(),
+        });
+      } catch (e) {
+        console.error(e);
+        alert('Failed to send. Check your Firebase rules.');
+      }
+    }
+
+    // Wire up UI
+    saveNameBtn.addEventListener('click', saveName);
+    resetBtn.addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      nameInput.value = '';
+      flashStatus('Name cleared');
+      nameInput.focus();
+    });
+    sendBtn.addEventListener('click', sendMessage);
+    msgInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // Load saved name
+    const saved = getName();
+    if (saved) nameInput.value = saved;
+
+    // Connection badge
+    onValue(presenceRef, (snap) => {
+      const connected = !!snap.val();
+      updateConnBadge(connected);
+    });
+
+    // Stream messages (latest 200)
+    const recent = query(messagesRef, orderByChild('timestamp'), limitToLast(200));
+    onChildAdded(recent, (snap) => {
+      const v = snap.val() || {};
+      // v.timestamp may be null on first local event; try using snap.getPriority or server assign
+      const ts = typeof v.timestamp === 'number' ? v.timestamp : Date.now();
+      appendAndScroll(msgElement({ name: v.name, text: v.text, timestamp: ts }));
+    });
+  </script>
+
+  <!--
+  Notes / Tips
+  - Open Realtime Database in Firebase console and create the database (same region as your project).
+  - Add rules like the ones in the README to protect against empty/oversized messages.
+  - Host this file on GitHub Pages or any static host – no backend needed.
+  -->
+</body>
+</html>
