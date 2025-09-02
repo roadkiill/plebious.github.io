@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; --success:#22c55e; --danger:#ef4444; }
+    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(180deg, #0b0e1a, #090c17); color: var(--text); }
     .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
@@ -32,6 +32,8 @@
     button.success:hover { background: #16a34a; }
     button.danger { background: var(--danger); border-color: var(--danger); color: white; }
     button.danger:hover { background: #dc2626; }
+    button.warning { background: var(--warning); border-color: var(--warning); color: white; }
+    button.warning:hover { background: #d97706; }
     button.active { background: var(--accent); border-color: var(--accent); color: #0f1220; }
     .btn-icon { padding: 8px; min-width: 36px; display: flex; align-items: center; justify-content: center; }
     #messages { height: min(50vh, 400px); overflow-y: auto; background: #0b0f20; padding: 8px; border-radius: 12px; border: 1px solid #1b2144; }
@@ -52,6 +54,11 @@
     .upload-area { position: relative; border: 2px dashed #262c4f; border-radius: 12px; padding: 20px; text-align: center; color: var(--muted); cursor: pointer; transition: all 0.3s ease; }
     .upload-area:hover { border-color: var(--accent); color: var(--accent); }
     .upload-area.dragover { border-color: var(--accent); background: rgba(125, 211, 252, 0.1); }
+    .verification-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(11, 14, 26, 0.95); display: flex; align-items: center; justify-content: center; z-index: 1000; }
+    .verification-card { background: var(--card); border: 1px solid #1f2440; border-radius: 16px; padding: 32px; max-width: 400px; width: 90%; text-align: center; }
+    .verification-status { padding: 12px 16px; border-radius: 12px; margin: 16px 0; font-weight: 600; }
+    .verification-status.pending { background: rgba(245, 158, 11, 0.2); border: 1px solid var(--warning); color: var(--warning); }
+    .verification-status.denied { background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: var(--danger); }
     footer { text-align:center; color:#778; font-size: 12px; margin-top: 16px; grid-column: 1 / -1; }
     
     @media (max-width: 768px) {
@@ -61,7 +68,34 @@
   </style>
 </head>
 <body>
-  <div class="wrap">
+  <!-- Verification Screen -->
+  <div id="verificationScreen" class="verification-screen">
+    <div class="verification-card">
+      <div class="title" style="margin-bottom: 16px;">🔒 Verification Required</div>
+      
+      <div id="verificationStep1">
+        <p>To join the chat, please enter your display name and request access:</p>
+        <div class="stack">
+          <div>
+            <label for="verifyName">Display Name</label>
+            <input id="verifyName" type="text" placeholder="e.g., Onion" maxlength="20" />
+          </div>
+          <button id="requestAccessBtn" class="warning">Request Access</button>
+        </div>
+      </div>
+      
+      <div id="verificationStep2" style="display: none;">
+        <div id="verificationStatus" class="verification-status pending">
+          ⏳ Waiting for admin approval...
+        </div>
+        <p>Your request has been sent to the admin. Please wait for approval.</p>
+        <button id="checkStatusBtn">Check Status</button>
+        <button id="cancelRequestBtn" class="danger" style="margin-left: 8px;">Cancel Request</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="wrap" id="mainApp" style="display: none;">
     <div class="main">
       <header>
         <div class="row" style="gap:10px">
@@ -151,7 +185,7 @@
   <script type="module">
     // --- Firebase SDKs (v10+) ---
     import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-    import { getDatabase, ref, push, serverTimestamp, onChildAdded, limitToLast, query, orderByChild, onDisconnect, onValue, set, remove } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
+    import { getDatabase, ref, push, serverTimestamp, onChildAdded, limitToLast, query, orderByChild, onValue, set, remove, get, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
 
     // Your config (provided)
     const firebaseConfig = {
@@ -170,6 +204,16 @@
     const db = getDatabase(app);
 
     // DOM Elements
+    const verificationScreen = document.getElementById('verificationScreen');
+    const mainApp = document.getElementById('mainApp');
+    const verifyNameInput = document.getElementById('verifyName');
+    const requestAccessBtn = document.getElementById('requestAccessBtn');
+    const verificationStep1 = document.getElementById('verificationStep1');
+    const verificationStep2 = document.getElementById('verificationStep2');
+    const verificationStatus = document.getElementById('verificationStatus');
+    const checkStatusBtn = document.getElementById('checkStatusBtn');
+    const cancelRequestBtn = document.getElementById('cancelRequestBtn');
+    
     const nameInput = document.getElementById('displayName');
     const saveNameBtn = document.getElementById('saveNameBtn');
     const resetBtn = document.getElementById('clearBtn');
@@ -202,13 +246,168 @@
     let isDeafened = false;
     let mediaStream = null;
     let userId = Math.random().toString(36).substr(2, 9);
+    let userToken = null;
 
     // Helpers
     const STORAGE_KEY = 'protogen_chat_name';
+    const TOKEN_KEY = 'protogen_chat_token';
     const messagesRef = ref(db, 'messages');
     const presenceRef = ref(db, '.info/connected');
     const voiceParticipantsRef = ref(db, 'voice_participants');
     const userVoiceRef = ref(db, `voice_participants/${userId}`);
+    const verificationRequestsRef = ref(db, 'verification_requests');
+    const verifiedUsersRef = ref(db, 'verified_users');
+
+    // Verification Functions
+    async function requestAccess() {
+      const name = verifyNameInput.value.trim();
+      if (!name) return alert('Please enter a display name');
+      
+      try {
+        // Generate a unique request ID
+        const requestId = Math.random().toString(36).substr(2, 15);
+        
+        await set(ref(db, `verification_requests/${requestId}`), {
+          name: name,
+          userId: userId,
+          requestedAt: serverTimestamp(),
+          status: 'pending'
+        });
+        
+        // Store the request ID locally
+        localStorage.setItem('verification_request_id', requestId);
+        
+        // Switch to step 2
+        verificationStep1.style.display = 'none';
+        verificationStep2.style.display = 'block';
+        
+        // Start listening for status updates
+        listenForVerificationStatus(requestId);
+        
+      } catch (error) {
+        console.error('Error requesting access:', error);
+        alert('Failed to send request. Please try again.');
+      }
+    }
+
+    function listenForVerificationStatus(requestId) {
+      const requestRef = ref(db, `verification_requests/${requestId}`);
+      onValue(requestRef, (snapshot) => {
+        const data = snapshot.val();
+        if (!data) return;
+        
+        if (data.status === 'approved') {
+          // Generate and store user token
+          userToken = Math.random().toString(36).substr(2, 20);
+          localStorage.setItem(TOKEN_KEY, userToken);
+          localStorage.setItem(STORAGE_KEY, data.name);
+          
+          // Add to verified users
+          set(ref(db, `verified_users/${userId}`), {
+            name: data.name,
+            token: userToken,
+            verifiedAt: serverTimestamp()
+          });
+          
+          // Clean up request
+          remove(requestRef);
+          localStorage.removeItem('verification_request_id');
+          
+          // Show main app
+          verificationScreen.style.display = 'none';
+          mainApp.style.display = 'grid';
+          nameInput.value = data.name;
+          initializeMainApp();
+          
+        } else if (data.status === 'denied') {
+          verificationStatus.className = 'verification-status denied';
+          verificationStatus.innerHTML = '❌ Access denied';
+          setTimeout(() => {
+            // Reset to step 1
+            verificationStep2.style.display = 'none';
+            verificationStep1.style.display = 'block';
+            verificationStatus.className = 'verification-status pending';
+            verificationStatus.innerHTML = '⏳ Waiting for admin approval...';
+            // Clean up
+            remove(requestRef);
+            localStorage.removeItem('verification_request_id');
+          }, 3000);
+        }
+      });
+    }
+
+    async function checkVerificationStatus() {
+      const requestId = localStorage.getItem('verification_request_id');
+      if (!requestId) return;
+      
+      try {
+        const snapshot = await get(ref(db, `verification_requests/${requestId}`));
+        const data = snapshot.val();
+        
+        if (!data) {
+          // Request no longer exists, reset
+          localStorage.removeItem('verification_request_id');
+          verificationStep2.style.display = 'none';
+          verificationStep1.style.display = 'block';
+        }
+      } catch (error) {
+        console.error('Error checking status:', error);
+      }
+    }
+
+    function cancelRequest() {
+      const requestId = localStorage.getItem('verification_request_id');
+      if (requestId) {
+        remove(ref(db, `verification_requests/${requestId}`));
+        localStorage.removeItem('verification_request_id');
+      }
+      
+      verificationStep2.style.display = 'none';
+      verificationStep1.style.display = 'block';
+      verifyNameInput.value = '';
+    }
+
+    async function checkExistingVerification() {
+      userToken = localStorage.getItem(TOKEN_KEY);
+      const savedName = localStorage.getItem(STORAGE_KEY);
+      
+      if (userToken && savedName) {
+        // Check if still verified
+        try {
+          const snapshot = await get(ref(db, `verified_users/${userId}`));
+          if (snapshot.exists() && snapshot.val().token === userToken) {
+            // Still verified, show main app
+            verificationScreen.style.display = 'none';
+            mainApp.style.display = 'grid';
+            nameInput.value = savedName;
+            initializeMainApp();
+            return;
+          }
+        } catch (error) {
+          console.error('Error checking verification:', error);
+        }
+      }
+      
+      // Check for pending request
+      const requestId = localStorage.getItem('verification_request_id');
+      if (requestId) {
+        try {
+          const snapshot = await get(ref(db, `verification_requests/${requestId}`));
+          if (snapshot.exists()) {
+            const data = snapshot.val();
+            verifyNameInput.value = data.name;
+            verificationStep1.style.display = 'none';
+            verificationStep2.style.display = 'block';
+            listenForVerificationStatus(requestId);
+            return;
+          } else {
+            localStorage.removeItem('verification_request_id');
+          }
+        } catch (error) {
+          console.error('Error checking pending request:', error);
+        }
+      }
+    }
 
     function saveName() {
       const val = (nameInput.value || '').trim();
@@ -290,6 +489,8 @@
     }
 
     async function sendMessage(imageData = null) {
+      if (!userToken) return alert('Not verified!');
+      
       const name = getName();
       const text = (msgInput.value || '').trim();
       if (!name) return alert('Set your display name first!');
@@ -302,6 +503,8 @@
         const messageData = {
           name,
           timestamp: serverTimestamp(),
+          userId: userId,
+          token: userToken
         };
         
         if (text) messageData.text = text;
@@ -328,6 +531,8 @@
 
     // Voice Chat Functions
     async function joinVoiceChat() {
+      if (!userToken) return alert('Not verified!');
+      
       const name = getName();
       if (!name) return alert('Set your display name first!');
       
@@ -344,7 +549,8 @@
         await set(userVoiceRef, {
           name: name,
           muted: false,
-          joinedAt: serverTimestamp()
+          joinedAt: serverTimestamp(),
+          token: userToken
         });
         
         // Clean up on disconnect
@@ -437,10 +643,52 @@
       });
     }
 
-    // Event Listeners
+    function initializeMainApp() {
+      // Connection badge
+      onValue(presenceRef, (snap) => {
+        const connected = !!snap.val();
+        updateConnBadge(connected);
+      });
+
+      // Stream messages (latest 200)
+      const recent = query(messagesRef, orderByChild('timestamp'), limitToLast(200));
+      onChildAdded(recent, (snap) => {
+        const v = snap.val() || {};
+        const ts = typeof v.timestamp === 'number' ? v.timestamp : Date.now();
+        appendAndScroll(msgElement({ 
+          name: v.name, 
+          text: v.text, 
+          timestamp: ts,
+          imageData: v.imageData 
+        }));
+      });
+
+      // Listen for voice participants
+      onValue(voiceParticipantsRef, (snap) => {
+        const participants = snap.val() || {};
+        if (inVoiceChat) {
+          updateParticipants(participants);
+        }
+      });
+    }
+
+    // Event Listeners for verification
+    requestAccessBtn.addEventListener('click', requestAccess);
+    checkStatusBtn.addEventListener('click', checkVerificationStatus);
+    cancelRequestBtn.addEventListener('click', cancelRequest);
+    
+    verifyNameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        requestAccess();
+      }
+    });
+
+    // Event Listeners for main app
     saveNameBtn.addEventListener('click', saveName);
     resetBtn.addEventListener('click', () => {
       localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(TOKEN_KEY);
       nameInput.value = '';
       flashStatus('Name cleared');
       nameInput.focus();
@@ -494,43 +742,12 @@
       }
     });
 
-    // Load saved name
-    const saved = getName();
-    if (saved) nameInput.value = saved;
-
-    // Connection badge
-    onValue(presenceRef, (snap) => {
-      const connected = !!snap.val();
-      updateConnBadge(connected);
-    });
-
-    // Stream messages (latest 200)
-    const recent = query(messagesRef, orderByChild('timestamp'), limitToLast(200));
-    onChildAdded(recent, (snap) => {
-      const v = snap.val() || {};
-      const ts = typeof v.timestamp === 'number' ? v.timestamp : Date.now();
-      appendAndScroll(msgElement({ 
-        name: v.name, 
-        text: v.text, 
-        timestamp: ts,
-        imageData: v.imageData 
-      }));
-    });
-
-    // Listen for voice participants
-    onValue(voiceParticipantsRef, (snap) => {
-      const participants = snap.val() || {};
-      if (inVoiceChat) {
-        updateParticipants(participants);
-      }
-    });
-
     // Cleanup on page unload
     window.addEventListener('beforeunload', () => {
       if (inVoiceChat) {
         leaveVoiceChat();
       }
     });
-  </script>
-</body>
-</html>
+
+    // Initialize the app
+    checkExistingVerification();
