@@ -263,16 +263,28 @@
       const name = verifyNameInput.value.trim();
       if (!name) return alert('Please enter a display name');
       
+      console.log('Requesting access for:', name, 'UserID:', userId);
+      
+      // Disable button to prevent double-clicks
+      requestAccessBtn.disabled = true;
+      requestAccessBtn.textContent = 'Sending Request...';
+      
       try {
         // Generate a unique request ID
         const requestId = Math.random().toString(36).substr(2, 15);
+        console.log('Generated request ID:', requestId);
         
-        await set(ref(db, `verification_requests/${requestId}`), {
+        const requestData = {
           name: name,
           userId: userId,
           requestedAt: serverTimestamp(),
           status: 'pending'
-        });
+        };
+        
+        console.log('Sending request data:', requestData);
+        
+        await set(ref(db, `verification_requests/${requestId}`), requestData);
+        console.log('Request sent successfully!');
         
         // Store the request ID locally
         localStorage.setItem('verification_request_id', requestId);
@@ -286,17 +298,28 @@
         
       } catch (error) {
         console.error('Error requesting access:', error);
-        alert('Failed to send request. Please try again.');
+        alert('Failed to send request: ' + error.message);
+        
+        // Re-enable button
+        requestAccessBtn.disabled = false;
+        requestAccessBtn.textContent = 'Request Access';
       }
     }
 
     function listenForVerificationStatus(requestId) {
+      console.log('Starting to listen for status updates for request:', requestId);
+      
       const requestRef = ref(db, `verification_requests/${requestId}`);
       onValue(requestRef, (snapshot) => {
+        console.log('Status update received:', snapshot.val());
         const data = snapshot.val();
-        if (!data) return;
+        if (!data) {
+          console.log('Request data is null - may have been removed');
+          return;
+        }
         
         if (data.status === 'approved') {
+          console.log('Request approved!');
           // Generate and store user token
           userToken = Math.random().toString(36).substr(2, 20);
           localStorage.setItem(TOKEN_KEY, userToken);
@@ -320,6 +343,7 @@
           initializeMainApp();
           
         } else if (data.status === 'denied') {
+          console.log('Request denied');
           verificationStatus.className = 'verification-status denied';
           verificationStatus.innerHTML = '❌ Access denied';
           setTimeout(() => {
@@ -328,11 +352,17 @@
             verificationStep1.style.display = 'block';
             verificationStatus.className = 'verification-status pending';
             verificationStatus.innerHTML = '⏳ Waiting for admin approval...';
+            verifyNameInput.value = '';
             // Clean up
             remove(requestRef);
             localStorage.removeItem('verification_request_id');
+            // Re-enable button
+            requestAccessBtn.disabled = false;
+            requestAccessBtn.textContent = 'Request Access';
           }, 3000);
         }
+      }, (error) => {
+        console.error('Error listening for status updates:', error);
       });
     }
 
@@ -368,20 +398,28 @@
     }
 
     async function checkExistingVerification() {
+      console.log('Checking existing verification...');
+      
       userToken = localStorage.getItem(TOKEN_KEY);
       const savedName = localStorage.getItem(STORAGE_KEY);
+      
+      console.log('Found token:', !!userToken, 'Found name:', savedName);
       
       if (userToken && savedName) {
         // Check if still verified
         try {
+          console.log('Checking verification status in Firebase...');
           const snapshot = await get(ref(db, `verified_users/${userId}`));
           if (snapshot.exists() && snapshot.val().token === userToken) {
+            console.log('User is still verified, showing main app');
             // Still verified, show main app
             verificationScreen.style.display = 'none';
             mainApp.style.display = 'grid';
             nameInput.value = savedName;
             initializeMainApp();
             return;
+          } else {
+            console.log('Verification expired or invalid');
           }
         } catch (error) {
           console.error('Error checking verification:', error);
@@ -390,10 +428,13 @@
       
       // Check for pending request
       const requestId = localStorage.getItem('verification_request_id');
+      console.log('Checking for pending request:', requestId);
+      
       if (requestId) {
         try {
           const snapshot = await get(ref(db, `verification_requests/${requestId}`));
           if (snapshot.exists()) {
+            console.log('Found pending request, switching to step 2');
             const data = snapshot.val();
             verifyNameInput.value = data.name;
             verificationStep1.style.display = 'none';
@@ -401,12 +442,15 @@
             listenForVerificationStatus(requestId);
             return;
           } else {
+            console.log('Pending request not found, cleaning up');
             localStorage.removeItem('verification_request_id');
           }
         } catch (error) {
           console.error('Error checking pending request:', error);
         }
       }
+      
+      console.log('No existing verification found, showing verification screen');
     }
 
     function saveName() {
