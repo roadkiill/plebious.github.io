@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; }
+    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; --admin:#dc2626; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(180deg, #0b0e1a, #090c17); color: var(--text); }
     .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
@@ -38,9 +38,12 @@
     .btn-icon { padding: 8px; min-width: 36px; display: flex; align-items: center; justify-content: center; }
     #messages { height: min(50vh, 400px); overflow-y: auto; background: #0b0f20; padding: 8px; border-radius: 12px; border: 1px solid #1b2144; }
     .msg { display:grid; gap:4px; padding: 10px 12px; background: #0e1329; border: 1px solid #20264a; border-radius: 12px; margin: 8px; }
+    .msg-admin { border-color: var(--admin); background: rgba(220, 38, 38, 0.1); }
     .msg-image { max-width: 300px; max-height: 200px; border-radius: 8px; margin-top: 8px; cursor: pointer; }
     .meta { display:flex; gap:8px; align-items:center; font-size: 12px; color: var(--muted); }
     .name { font-weight: 700; color: var(--accent); }
+    .name-admin { color: var(--admin) !important; }
+    .text-admin { color: #fca5a5; }
     .time { opacity:.8; }
     .you { border-color: #2b375f; background: #10183a; }
     .status { font-size: 12px; color: var(--muted); padding: 4px 8px; background: var(--pill); border: 1px solid #2a3163; border-radius: 999px; }
@@ -94,7 +97,7 @@
       <header>
         <div class="row" style="gap:10px">
           <div class="title">😛 Pleb</div>
-          <div id="conn" class="status" title="Connection status">• Connecting…</div>
+          <div id="conn" class="status" title="Connection status">● Connecting…</div>
         </div>
         <button id="clearBtn" title="Clear local data">Reset</button>
       </header>
@@ -248,6 +251,7 @@
     const presenceRef = ref(db, '.info/connected');
     const voiceParticipantsRef = ref(db, 'voice_participants');
     const userVoiceRef = ref(db, `voice_participants/${userId}`);
+    const kickedUsersRef = ref(db, 'kicked_users');
 
     // Password Verification
     function checkPassword() {
@@ -325,10 +329,10 @@
 
     function updateConnBadge(connected) {
       if (typeof connected === 'boolean') {
-        connEl.textContent = connected ? '• Online' : '• Offline';
+        connEl.textContent = connected ? '● Online' : '● Offline';
         return;
       }
-      connEl.textContent = connEl.textContent.includes('•') ? connEl.textContent : '• Online';
+      connEl.textContent = connEl.textContent.includes('●') ? connEl.textContent : '● Online';
     }
 
     function formatTime(ts) {
@@ -340,16 +344,16 @@
       } catch (_) { return '…'; }
     }
 
-    function msgElement({ name, text, timestamp, imageData }) {
+    function msgElement({ name, text, timestamp, imageData, isAdmin }) {
       const me = getName();
       const root = document.createElement('div');
-      root.className = 'msg' + (name === me ? ' you' : '');
+      root.className = 'msg' + (name === me ? ' you' : '') + (isAdmin ? ' msg-admin' : '');
 
       const meta = document.createElement('div');
       meta.className = 'meta';
 
       const nameEl = document.createElement('span');
-      nameEl.className = 'name';
+      nameEl.className = 'name' + (isAdmin ? ' name-admin' : '');
       nameEl.textContent = name || 'anon';
 
       const dot = document.createElement('span');
@@ -364,6 +368,7 @@
 
       if (text) {
         const textEl = document.createElement('div');
+        textEl.className = isAdmin ? 'text-admin' : '';
         textEl.textContent = text;
         root.appendChild(textEl);
       }
@@ -385,11 +390,46 @@
       if (nearBottom) listEl.scrollTop = listEl.scrollHeight;
     }
 
+    // Check if user is kicked
+    function checkIfKicked(username, callback) {
+      if (!username) {
+        callback(false);
+        return;
+      }
+      
+      try {
+        onValue(ref(db, `kicked_users/${username}`), (snapshot) => {
+          callback(snapshot.exists());
+        }, { onlyOnce: true });
+      } catch (error) {
+        console.error('Error checking kick status:', error);
+        // If there's an error, allow the user to continue
+        callback(false);
+      }
+    }
+
     async function sendMessage(imageData = null) {
       const name = getName();
       const text = (msgInput.value || '').trim();
       if (!name) return alert('Set your display name first!');
       if (!text && !imageData) return;
+      
+      // Check if user is kicked before sending
+      try {
+        const kickedSnapshot = await new Promise((resolve) => {
+          onValue(ref(db, `kicked_users/${name}`), resolve, { onlyOnce: true });
+        });
+        
+        if (kickedSnapshot.exists()) {
+          alert('You have been kicked from the chat and cannot send messages.');
+          msgInput.disabled = true;
+          sendBtn.disabled = true;
+          msgInput.placeholder = "You have been kicked from the chat";
+          return;
+        }
+      } catch (error) {
+        console.log('Could not check kick status, allowing message');
+      }
       
       msgInput.value = '';
       msgInput.focus();
@@ -426,6 +466,20 @@
     async function joinVoiceChat() {
       const name = getName();
       if (!name) return alert('Set your display name first!');
+      
+      // Check if user is kicked before joining voice
+      try {
+        const kickedSnapshot = await new Promise((resolve) => {
+          onValue(ref(db, `kicked_users/${name}`), resolve, { onlyOnce: true });
+        });
+        
+        if (kickedSnapshot.exists()) {
+          alert('You have been kicked from the chat and cannot join voice chat.');
+          return;
+        }
+      } catch (error) {
+        console.log('Could not check kick status, allowing voice chat');
+      }
       
       try {
         mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -549,7 +603,8 @@
           name: v.name, 
           text: v.text, 
           timestamp: ts,
-          imageData: v.imageData 
+          imageData: v.imageData,
+          isAdmin: v.isAdmin || false
         }));
       });
 
@@ -560,6 +615,57 @@
           updateParticipants(participants);
         }
       });
+
+      // Real-time kick monitoring - immediately disable user when kicked
+      const currentName = getName();
+      if (currentName) {
+        try {
+          onValue(ref(db, `kicked_users/${currentName}`), (snapshot) => {
+            if (snapshot.exists()) {
+              // User has been kicked!
+              alert('You have been kicked from the chat by an administrator.');
+              
+              // Disable chat functionality immediately
+              msgInput.disabled = true;
+              sendBtn.disabled = true;
+              imageBtn.disabled = true;
+              msgInput.placeholder = "You have been kicked from the chat";
+              msgInput.style.backgroundColor = '#2d1b1b';
+              
+              // Leave voice chat if in it
+              if (inVoiceChat) {
+                leaveVoiceChat();
+              }
+              
+              // Disable voice chat button
+              joinVcBtn.disabled = true;
+              joinVcBtn.textContent = '❌ Kicked from Chat';
+              joinVcBtn.classList.add('danger');
+              
+              // Show kick message in status
+              flashStatus('❌ Kicked');
+            } else {
+              // User is not kicked, ensure everything is enabled
+              if (msgInput.disabled) {
+                msgInput.disabled = false;
+                sendBtn.disabled = false;
+                imageBtn.disabled = false;
+                msgInput.placeholder = "Type a message and press Enter…";
+                msgInput.style.backgroundColor = '#0e1222';
+                
+                joinVcBtn.disabled = false;
+                joinVcBtn.textContent = '🎤 Join Voice Chat';
+                joinVcBtn.classList.remove('danger');
+                joinVcBtn.classList.add('success');
+                
+                flashStatus('✅ Access Restored');
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Error monitoring kick status:', error);
+        }
+      }
     }
 
     // Event Listeners
