@@ -22,8 +22,8 @@
     .section { padding: 16px; border-bottom: 1px solid #1f2440; }
     .section:last-child { border-bottom: 0; }
     label { font-size: 12px; color: var(--muted); display:block; margin-bottom: 6px; }
-    input[type="text"] { width: 100%; padding: 12px 14px; border-radius: 12px; background: #0e1222; border: 1px solid #262c4f; color: var(--text); outline: none; }
-    input[type="text"]::placeholder { color: #6b7196; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 12px 14px; border-radius: 12px; background: #0e1222; border: 1px solid #262c4f; color: var(--text); outline: none; }
+    input[type="text"]::placeholder, input[type="password"]::placeholder { color: #6b7196; }
     input[type="file"] { display: none; }
     button { padding: 10px 14px; border-radius: 12px; border: 1px solid #2a3163; background: #1b2150; color: var(--text); font-weight: 600; cursor: pointer; transition: transform .05s ease, background .2s; }
     button:hover { background: #232a6a; }
@@ -56,9 +56,6 @@
     .upload-area.dragover { border-color: var(--accent); background: rgba(125, 211, 252, 0.1); }
     .verification-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(11, 14, 26, 0.95); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .verification-card { background: var(--card); border: 1px solid #1f2440; border-radius: 16px; padding: 32px; max-width: 400px; width: 90%; text-align: center; }
-    .verification-status { padding: 12px 16px; border-radius: 12px; margin: 16px 0; font-weight: 600; }
-    .verification-status.pending { background: rgba(245, 158, 11, 0.2); border: 1px solid var(--warning); color: var(--warning); }
-    .verification-status.denied { background: rgba(239, 68, 68, 0.2); border: 1px solid var(--danger); color: var(--danger); }
     footer { text-align:center; color:#778; font-size: 12px; margin-top: 16px; grid-column: 1 / -1; }
     
     @media (max-width: 768px) {
@@ -71,26 +68,23 @@
   <!-- Verification Screen -->
   <div id="verificationScreen" class="verification-screen">
     <div class="verification-card">
-      <div class="title" style="margin-bottom: 16px;">🔒 Verification Required</div>
+      <div class="title" style="margin-bottom: 16px;">🔒 Access Required</div>
+      <p>Enter the chat password to join:</p>
       
-      <div id="verificationStep1">
-        <p>To join the chat, please enter your display name and request access:</p>
-        <div class="stack">
-          <div>
-            <label for="verifyName">Display Name</label>
-            <input id="verifyName" type="text" placeholder="e.g., Onion" maxlength="20" />
-          </div>
-          <button id="requestAccessBtn" class="warning">Request Access</button>
+      <div class="stack">
+        <div>
+          <label for="passwordInput">Password</label>
+          <input id="passwordInput" type="password" placeholder="Enter password..." />
         </div>
+        <div>
+          <label for="displayNameInput">Display Name</label>
+          <input id="displayNameInput" type="text" placeholder="e.g., Onion" maxlength="20" />
+        </div>
+        <button id="enterChatBtn" class="success">🚪 Enter Chat</button>
       </div>
       
-      <div id="verificationStep2" style="display: none;">
-        <div id="verificationStatus" class="verification-status pending">
-          ⏳ Waiting for admin approval...
-        </div>
-        <p>Your request has been sent to the admin. Please wait for approval.</p>
-        <button id="checkStatusBtn">Check Status</button>
-        <button id="cancelRequestBtn" class="danger" style="margin-left: 8px;">Cancel Request</button>
+      <div id="errorMessage" style="color: var(--danger); margin-top: 16px; display: none;">
+        ❌ Incorrect password. Try again.
       </div>
     </div>
   </div>
@@ -102,7 +96,7 @@
           <div class="title">😛 Pleb</div>
           <div id="conn" class="status" title="Connection status">• Connecting…</div>
         </div>
-        <button id="clearBtn" title="Clear local name only">Reset Name</button>
+        <button id="clearBtn" title="Clear local data">Reset</button>
       </header>
 
       <div class="card">
@@ -183,11 +177,11 @@
 
   <!-- Firebase + App Script -->
   <script type="module">
-    // --- Firebase SDKs (v10+) ---
-    import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-app.js';
-    import { getDatabase, ref, push, serverTimestamp, onChildAdded, limitToLast, query, orderByChild, onValue, set, remove, get, onDisconnect } from 'https://www.gstatic.com/firebasejs/10.12.5/firebase-database.js';
+    // --- Firebase SDKs ---
+    import { initializeApp } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-app.js';
+    import { getDatabase, ref, push, serverTimestamp, onChildAdded, limitToLast, query, orderByChild, onValue, set, remove, onDisconnect } from 'https://www.gstatic.com/firebasejs/9.23.0/firebase-database.js';
 
-    // Your config (provided)
+    // Your config
     const firebaseConfig = {
       apiKey: "AIzaSyAUhiB3d042QEfM5qWdC5qYGt7hrcqKolc",
       authDomain: "chatting-6cd81.firebaseapp.com",
@@ -203,16 +197,16 @@
     const app = initializeApp(firebaseConfig);
     const db = getDatabase(app);
 
+    // CHANGE THIS PASSWORD TO WHATEVER YOU WANT
+    const CHAT_PASSWORD = "plebous123ous";
+
     // DOM Elements
     const verificationScreen = document.getElementById('verificationScreen');
     const mainApp = document.getElementById('mainApp');
-    const verifyNameInput = document.getElementById('verifyName');
-    const requestAccessBtn = document.getElementById('requestAccessBtn');
-    const verificationStep1 = document.getElementById('verificationStep1');
-    const verificationStep2 = document.getElementById('verificationStep2');
-    const verificationStatus = document.getElementById('verificationStatus');
-    const checkStatusBtn = document.getElementById('checkStatusBtn');
-    const cancelRequestBtn = document.getElementById('cancelRequestBtn');
+    const passwordInput = document.getElementById('passwordInput');
+    const displayNameInput = document.getElementById('displayNameInput');
+    const enterChatBtn = document.getElementById('enterChatBtn');
+    const errorMessage = document.getElementById('errorMessage');
     
     const nameInput = document.getElementById('displayName');
     const saveNameBtn = document.getElementById('saveNameBtn');
@@ -246,211 +240,70 @@
     let isDeafened = false;
     let mediaStream = null;
     let userId = Math.random().toString(36).substr(2, 9);
-    let userToken = null;
 
     // Helpers
-    const STORAGE_KEY = 'protogen_chat_name';
-    const TOKEN_KEY = 'protogen_chat_token';
+    const STORAGE_KEY = 'pleb_chat_name';
+    const VERIFIED_KEY = 'pleb_chat_verified';
     const messagesRef = ref(db, 'messages');
     const presenceRef = ref(db, '.info/connected');
     const voiceParticipantsRef = ref(db, 'voice_participants');
     const userVoiceRef = ref(db, `voice_participants/${userId}`);
-    const verificationRequestsRef = ref(db, 'verification_requests');
-    const verifiedUsersRef = ref(db, 'verified_users');
 
-    // Verification Functions
-    async function requestAccess() {
-      const name = verifyNameInput.value.trim();
-      if (!name) return alert('Please enter a display name');
+    // Password Verification
+    function checkPassword() {
+      const password = passwordInput.value.trim();
+      const name = displayNameInput.value.trim();
       
-      console.log('Requesting access for:', name, 'UserID:', userId);
+      if (!password) {
+        showError('Please enter the password');
+        return;
+      }
       
-      // Disable button to prevent double-clicks
-      requestAccessBtn.disabled = true;
-      requestAccessBtn.textContent = 'Sending Request...';
+      if (!name) {
+        showError('Please enter a display name');
+        return;
+      }
       
-      try {
-        // Generate a unique request ID
-        const requestId = Math.random().toString(36).substr(2, 15);
-        console.log('Generated request ID:', requestId);
+      if (password === CHAT_PASSWORD) {
+        // Correct password!
+        localStorage.setItem(VERIFIED_KEY, 'true');
+        localStorage.setItem(STORAGE_KEY, name);
         
-        const requestData = {
-          name: name,
-          userId: userId,
-          requestedAt: serverTimestamp(),
-          status: 'pending'
-        };
+        // Show main app
+        verificationScreen.style.display = 'none';
+        mainApp.style.display = 'grid';
+        nameInput.value = name;
         
-        console.log('Sending request data:', requestData);
-        
-        await set(ref(db, `verification_requests/${requestId}`), requestData);
-        console.log('Request sent successfully!');
-        
-        // Store the request ID locally
-        localStorage.setItem('verification_request_id', requestId);
-        
-        // Switch to step 2
-        verificationStep1.style.display = 'none';
-        verificationStep2.style.display = 'block';
-        
-        // Start listening for status updates
-        listenForVerificationStatus(requestId);
-        
-      } catch (error) {
-        console.error('Error requesting access:', error);
-        alert('Failed to send request: ' + error.message);
-        
-        // Re-enable button
-        requestAccessBtn.disabled = false;
-        requestAccessBtn.textContent = 'Request Access';
+        initializeMainApp();
+      } else {
+        showError('Incorrect password. Try again.');
+        passwordInput.value = '';
+        passwordInput.focus();
       }
     }
 
-    function listenForVerificationStatus(requestId) {
-      console.log('Starting to listen for status updates for request:', requestId);
-      
-      const requestRef = ref(db, `verification_requests/${requestId}`);
-      onValue(requestRef, (snapshot) => {
-        console.log('Status update received:', snapshot.val());
-        const data = snapshot.val();
-        if (!data) {
-          console.log('Request data is null - may have been removed');
-          return;
-        }
-        
-        if (data.status === 'approved') {
-          console.log('Request approved!');
-          // Generate and store user token
-          userToken = Math.random().toString(36).substr(2, 20);
-          localStorage.setItem(TOKEN_KEY, userToken);
-          localStorage.setItem(STORAGE_KEY, data.name);
-          
-          // Add to verified users
-          set(ref(db, `verified_users/${userId}`), {
-            name: data.name,
-            token: userToken,
-            verifiedAt: serverTimestamp()
-          });
-          
-          // Clean up request
-          remove(requestRef);
-          localStorage.removeItem('verification_request_id');
-          
-          // Show main app
-          verificationScreen.style.display = 'none';
-          mainApp.style.display = 'grid';
-          nameInput.value = data.name;
-          initializeMainApp();
-          
-        } else if (data.status === 'denied') {
-          console.log('Request denied');
-          verificationStatus.className = 'verification-status denied';
-          verificationStatus.innerHTML = '❌ Access denied';
-          setTimeout(() => {
-            // Reset to step 1
-            verificationStep2.style.display = 'none';
-            verificationStep1.style.display = 'block';
-            verificationStatus.className = 'verification-status pending';
-            verificationStatus.innerHTML = '⏳ Waiting for admin approval...';
-            verifyNameInput.value = '';
-            // Clean up
-            remove(requestRef);
-            localStorage.removeItem('verification_request_id');
-            // Re-enable button
-            requestAccessBtn.disabled = false;
-            requestAccessBtn.textContent = 'Request Access';
-          }, 3000);
-        }
-      }, (error) => {
-        console.error('Error listening for status updates:', error);
-      });
+    function showError(message) {
+      errorMessage.textContent = '❌ ' + message;
+      errorMessage.style.display = 'block';
+      setTimeout(() => {
+        errorMessage.style.display = 'none';
+      }, 3000);
     }
 
-    async function checkVerificationStatus() {
-      const requestId = localStorage.getItem('verification_request_id');
-      if (!requestId) return;
-      
-      try {
-        const snapshot = await get(ref(db, `verification_requests/${requestId}`));
-        const data = snapshot.val();
-        
-        if (!data) {
-          // Request no longer exists, reset
-          localStorage.removeItem('verification_request_id');
-          verificationStep2.style.display = 'none';
-          verificationStep1.style.display = 'block';
-        }
-      } catch (error) {
-        console.error('Error checking status:', error);
-      }
-    }
-
-    function cancelRequest() {
-      const requestId = localStorage.getItem('verification_request_id');
-      if (requestId) {
-        remove(ref(db, `verification_requests/${requestId}`));
-        localStorage.removeItem('verification_request_id');
-      }
-      
-      verificationStep2.style.display = 'none';
-      verificationStep1.style.display = 'block';
-      verifyNameInput.value = '';
-    }
-
-    async function checkExistingVerification() {
-      console.log('Checking existing verification...');
-      
-      userToken = localStorage.getItem(TOKEN_KEY);
+    function checkExistingVerification() {
+      const isVerified = localStorage.getItem(VERIFIED_KEY);
       const savedName = localStorage.getItem(STORAGE_KEY);
       
-      console.log('Found token:', !!userToken, 'Found name:', savedName);
-      
-      if (userToken && savedName) {
-        // Check if still verified
-        try {
-          console.log('Checking verification status in Firebase...');
-          const snapshot = await get(ref(db, `verified_users/${userId}`));
-          if (snapshot.exists() && snapshot.val().token === userToken) {
-            console.log('User is still verified, showing main app');
-            // Still verified, show main app
-            verificationScreen.style.display = 'none';
-            mainApp.style.display = 'grid';
-            nameInput.value = savedName;
-            initializeMainApp();
-            return;
-          } else {
-            console.log('Verification expired or invalid');
-          }
-        } catch (error) {
-          console.error('Error checking verification:', error);
-        }
+      if (isVerified === 'true' && savedName) {
+        // Already verified, show main app
+        verificationScreen.style.display = 'none';
+        mainApp.style.display = 'grid';
+        nameInput.value = savedName;
+        initializeMainApp();
+      } else {
+        // Show verification screen
+        passwordInput.focus();
       }
-      
-      // Check for pending request
-      const requestId = localStorage.getItem('verification_request_id');
-      console.log('Checking for pending request:', requestId);
-      
-      if (requestId) {
-        try {
-          const snapshot = await get(ref(db, `verification_requests/${requestId}`));
-          if (snapshot.exists()) {
-            console.log('Found pending request, switching to step 2');
-            const data = snapshot.val();
-            verifyNameInput.value = data.name;
-            verificationStep1.style.display = 'none';
-            verificationStep2.style.display = 'block';
-            listenForVerificationStatus(requestId);
-            return;
-          } else {
-            console.log('Pending request not found, cleaning up');
-            localStorage.removeItem('verification_request_id');
-          }
-        } catch (error) {
-          console.error('Error checking pending request:', error);
-        }
-      }
-      
-      console.log('No existing verification found, showing verification screen');
     }
 
     function saveName() {
@@ -533,8 +386,6 @@
     }
 
     async function sendMessage(imageData = null) {
-      if (!userToken) return alert('Not verified!');
-      
       const name = getName();
       const text = (msgInput.value || '').trim();
       if (!name) return alert('Set your display name first!');
@@ -547,8 +398,6 @@
         const messageData = {
           name,
           timestamp: serverTimestamp(),
-          userId: userId,
-          token: userToken
         };
         
         if (text) messageData.text = text;
@@ -557,7 +406,7 @@
         await push(messagesRef, messageData);
       } catch (e) {
         console.error(e);
-        alert('Failed to send. Check your Firebase rules.');
+        alert('Failed to send. Check connection.');
       }
     }
 
@@ -575,8 +424,6 @@
 
     // Voice Chat Functions
     async function joinVoiceChat() {
-      if (!userToken) return alert('Not verified!');
-      
       const name = getName();
       if (!name) return alert('Set your display name first!');
       
@@ -593,8 +440,7 @@
         await set(userVoiceRef, {
           name: name,
           muted: false,
-          joinedAt: serverTimestamp(),
-          token: userToken
+          joinedAt: serverTimestamp()
         });
         
         // Clean up on disconnect
@@ -716,26 +562,20 @@
       });
     }
 
-    // Event Listeners for verification
-    requestAccessBtn.addEventListener('click', requestAccess);
-    checkStatusBtn.addEventListener('click', checkVerificationStatus);
-    cancelRequestBtn.addEventListener('click', cancelRequest);
-    
-    verifyNameInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        requestAccess();
-      }
+    // Event Listeners
+    enterChatBtn.addEventListener('click', checkPassword);
+    passwordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') checkPassword();
+    });
+    displayNameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') checkPassword();
     });
 
-    // Event Listeners for main app
     saveNameBtn.addEventListener('click', saveName);
     resetBtn.addEventListener('click', () => {
       localStorage.removeItem(STORAGE_KEY);
-      localStorage.removeItem(TOKEN_KEY);
-      nameInput.value = '';
-      flashStatus('Name cleared');
-      nameInput.focus();
+      localStorage.removeItem(VERIFIED_KEY);
+      location.reload();
     });
     
     sendBtn.addEventListener('click', () => sendMessage());
@@ -793,5 +633,8 @@
       }
     });
 
-    // Initialize the app
+    // Initialize
     checkExistingVerification();
+  </script>
+</body>
+</html>
