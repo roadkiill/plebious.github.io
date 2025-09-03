@@ -61,9 +61,101 @@
     .verification-card { background: var(--card); border: 1px solid #1f2440; border-radius: 16px; padding: 32px; max-width: 400px; width: 90%; text-align: center; }
     footer { text-align:center; color:#778; font-size: 12px; margin-top: 16px; grid-column: 1 / -1; }
     
+    /* Typing indicator styles */
+    #typingIndicator { 
+      font-size: 12px; 
+      color: var(--muted); 
+      margin: 6px 12px; 
+      min-height: 16px;
+      font-style: italic;
+      opacity: 0;
+      transition: opacity 0.2s ease;
+    }
+    
+    #typingIndicator.active { 
+      opacity: 1; 
+    }
+    
+    #typingIndicator::before {
+      content: "💬 ";
+    }
+    
+    /* GIF panel improvements */
+    #gifPanel {
+      margin-top: 8px;
+      animation: slideDown 0.2s ease;
+    }
+    
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-10px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    
+    .gif-search-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    
+    .gif-search-row input {
+      flex: 1;
+      margin-bottom: 0;
+    }
+    
+    #gifResults {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+      gap: 8px;
+      max-height: 300px;
+      overflow-y: auto;
+    }
+    
+    .gif-item {
+      aspect-ratio: 1;
+      border-radius: 8px;
+      cursor: pointer;
+      transition: transform 0.1s ease, box-shadow 0.2s ease;
+      object-fit: cover;
+      width: 100%;
+      height: 100%;
+    }
+    
+    .gif-item:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 12px rgba(125, 211, 252, 0.3);
+    }
+    
+    .gif-loading {
+      text-align: center;
+      padding: 20px;
+      color: var(--muted);
+    }
+    
+    .gif-error {
+      text-align: center;
+      padding: 20px;
+      color: var(--danger);
+    }
+    
+    .gif-empty {
+      text-align: center;
+      padding: 20px;
+      color: var(--muted);
+    }
+    
+    #gifBtn.active {
+      background: var(--accent);
+      color: #0f1220;
+    }
+    
     @media (max-width: 768px) {
       .wrap { grid-template-columns: 1fr; }
       .sidebar { order: -1; }
+      
+      #gifResults {
+        grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+        gap: 6px;
+      }
     }
   </style>
 </head>
@@ -115,15 +207,30 @@
 
         <div class="section stack">
           <div id="messages" aria-live="polite" aria-label="Chat messages"></div>
+          <div id="typingIndicator"></div>
           
           <div class="upload-area" id="uploadArea">
             <div>📸 Drag & drop images here or click to select</div>
             <input type="file" id="imageInput" accept="image/*" multiple />
           </div>
           
+          <!-- GIF Panel -->
+          <div id="gifPanel" class="card" style="display:none;">
+            <div class="section">
+              <div class="gif-search-row">
+                <input id="gifSearchInput" type="text" placeholder="Search GIFs…">
+                <button id="gifSearchBtn">🔍</button>
+              </div>
+            </div>
+            <div class="section">
+              <div id="gifResults" class="gif-loading">Loading trending GIFs...</div>
+            </div>
+          </div>
+          
           <div class="row">
             <input id="messageInput" type="text" placeholder="Type a message and press Enter…" maxlength="500" />
             <button id="imageBtn" class="btn-icon" title="Upload Image">📷</button>
+            <button id="gifBtn" class="btn-icon" title="Send GIF">🎬</button>
             <button id="sendBtn">Send</button>
           </div>
         </div>
@@ -202,6 +309,9 @@
 
     // CHANGE THIS PASSWORD TO WHATEVER YOU WANT
     const CHAT_PASSWORD = "plebous123ous";
+    
+    // GIF API
+    const GIPHY_KEY = "bDiYI9SyxC1DGIdqZe3ZdbnFsOHJGlBm";
 
     // DOM Elements
     const verificationScreen = document.getElementById('verificationScreen');
@@ -221,6 +331,14 @@
     const imageInput = document.getElementById('imageInput');
     const imageBtn = document.getElementById('imageBtn');
     const uploadArea = document.getElementById('uploadArea');
+    const typingIndicator = document.getElementById('typingIndicator');
+    
+    // GIF Elements
+    const gifBtn = document.getElementById('gifBtn');
+    const gifPanel = document.getElementById('gifPanel');
+    const gifSearchInput = document.getElementById('gifSearchInput');
+    const gifSearchBtn = document.getElementById('gifSearchBtn');
+    const gifResults = document.getElementById('gifResults');
     
     // Voice Chat Elements
     const joinVcBtn = document.getElementById('joinVcBtn');
@@ -244,6 +362,10 @@
     let mediaStream = null;
     let userId = Math.random().toString(36).substr(2, 9);
 
+    // Typing state
+    let typingTimeout;
+    let isTyping = false;
+
     // Helpers
     const STORAGE_KEY = 'pleb_chat_name';
     const VERIFIED_KEY = 'pleb_chat_verified';
@@ -252,6 +374,8 @@
     const voiceParticipantsRef = ref(db, 'voice_participants');
     const userVoiceRef = ref(db, `voice_participants/${userId}`);
     const kickedUsersRef = ref(db, 'kicked_users');
+    const typingRef = ref(db, 'typing');
+    const userTypingRef = ref(db, `typing/${userId}`);
 
     // Password Verification
     function checkPassword() {
@@ -390,6 +514,114 @@
       if (nearBottom) listEl.scrollTop = listEl.scrollHeight;
     }
 
+    // Typing indicator functions
+    function updateTypingIndicator(typingData) {
+      const me = getName();
+      const others = Object.values(typingData || {}).filter(name => name && name !== me);
+      
+      console.log('Typing data:', typingData, 'Others typing:', others); // Debug log
+      
+      if (others.length === 0) {
+        typingIndicator.textContent = '';
+      } else if (others.length === 1) {
+        typingIndicator.textContent = `${others[0]} is typing`;
+      } else if (others.length > 5) {
+        typingIndicator.textContent = `dayum that's a lotta people typing`;
+      } else {
+        // For 2-5 people: "User, User, and User are typing"
+        const lastUser = others.pop();
+        const otherUsers = others.join(', ');
+        typingIndicator.textContent = `${otherUsers}, and ${lastUser} are typing`;
+      }
+    }
+
+    function setTyping(typing) {
+      const name = getName();
+      if (!name) return;
+      
+      console.log('Setting typing:', typing, 'for user:', name); // Debug log
+      
+      if (typing && !isTyping) {
+        isTyping = true;
+        set(userTypingRef, name).catch(err => console.error('Typing set error:', err));
+      } else if (!typing && isTyping) {
+        isTyping = false;
+        remove(userTypingRef).catch(err => console.error('Typing remove error:', err));
+      }
+    }
+
+    function handleTypingInput() {
+      const name = getName();
+      if (!name) return;
+
+      // Only trigger if there's actual content or user is actively typing
+      if (msgInput.value.length > 0) {
+        setTyping(true);
+      }
+
+      // Clear typing status after 2 seconds of inactivity (shorter for more responsiveness)
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        setTyping(false);
+      }, 2000);
+    }
+
+    // GIF Functions
+    async function fetchGifs(endpoint) {
+      gifResults.innerHTML = '<div class="gif-loading">Loading GIFs...</div>';
+      
+      try {
+        const response = await fetch(endpoint);
+        const data = await response.json();
+        
+        gifResults.innerHTML = '';
+        
+        if (!data.data || data.data.length === 0) {
+          gifResults.innerHTML = '<div class="gif-empty">No GIFs found. Try a different search term.</div>';
+          return;
+        }
+        
+        data.data.forEach(gif => {
+          const img = document.createElement('img');
+          img.src = gif.images.fixed_width_small.url;
+          img.className = 'gif-item';
+          img.alt = gif.title || 'GIF';
+          img.onclick = () => {
+            sendMessage(gif.images.original.url);
+            toggleGifPanel(); // Close panel after selecting
+          };
+          gifResults.appendChild(img);
+        });
+      } catch (error) {
+        console.error('Error fetching GIFs:', error);
+        gifResults.innerHTML = '<div class="gif-error">Failed to load GIFs. Please try again.</div>';
+      }
+    }
+
+    function loadTrendingGifs() {
+      fetchGifs(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=24&rating=pg`);
+    }
+
+    function searchGifs() {
+      const query = gifSearchInput.value.trim();
+      if (!query) {
+        loadTrendingGifs();
+        return;
+      }
+      fetchGifs(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(query)}&limit=24&rating=pg`);
+    }
+
+    function toggleGifPanel() {
+      const isVisible = gifPanel.style.display !== 'none';
+      gifPanel.style.display = isVisible ? 'none' : 'block';
+      gifBtn.classList.toggle('active', !isVisible);
+      
+      if (!isVisible) {
+        loadTrendingGifs();
+        gifSearchInput.focus();
+      }
+    }
+
     // Check if user is kicked
     function checkIfKicked(username, callback) {
       if (!username) {
@@ -403,7 +635,6 @@
         }, { onlyOnce: true });
       } catch (error) {
         console.error('Error checking kick status:', error);
-        // If there's an error, allow the user to continue
         callback(false);
       }
     }
@@ -432,6 +663,7 @@
       }
       
       msgInput.value = '';
+      setTyping(false); // Clear typing when sending
       msgInput.focus();
 
       try {
@@ -608,6 +840,11 @@
         }));
       });
 
+      // Listen for typing indicators
+      onValue(typingRef, (snapshot) => {
+        updateTypingIndicator(snapshot.val());
+      });
+
       // Listen for voice participants
       onValue(voiceParticipantsRef, (snap) => {
         const participants = snap.val() || {};
@@ -616,7 +853,7 @@
         }
       });
 
-      // Real-time kick monitoring - immediately disable user when kicked
+      // Real-time kick monitoring
       const currentName = getName();
       if (currentName) {
         try {
@@ -629,8 +866,12 @@
               msgInput.disabled = true;
               sendBtn.disabled = true;
               imageBtn.disabled = true;
+              gifBtn.disabled = true;
               msgInput.placeholder = "You have been kicked from the chat";
               msgInput.style.backgroundColor = '#2d1b1b';
+              
+              // Clear typing status
+              setTyping(false);
               
               // Leave voice chat if in it
               if (inVoiceChat) {
@@ -642,6 +883,11 @@
               joinVcBtn.textContent = '❌ Kicked from Chat';
               joinVcBtn.classList.add('danger');
               
+              // Close GIF panel
+              if (gifPanel.style.display !== 'none') {
+                toggleGifPanel();
+              }
+              
               // Show kick message in status
               flashStatus('❌ Kicked');
             } else {
@@ -650,6 +896,7 @@
                 msgInput.disabled = false;
                 sendBtn.disabled = false;
                 imageBtn.disabled = false;
+                gifBtn.disabled = false;
                 msgInput.placeholder = "Type a message and press Enter…";
                 msgInput.style.backgroundColor = '#0e1222';
                 
@@ -666,6 +913,9 @@
           console.error('Error monitoring kick status:', error);
         }
       }
+
+      // Clean up typing status on disconnect
+      onDisconnect(userTypingRef).remove();
     }
 
     // Event Listeners
@@ -692,6 +942,11 @@
       }
     });
 
+    // Typing indicator events
+    msgInput.addEventListener('input', handleTypingInput);
+    msgInput.addEventListener('focus', handleTypingInput);
+    msgInput.addEventListener('blur', () => setTyping(false));
+
     // Image Upload Events
     imageBtn.addEventListener('click', () => imageInput.click());
     imageInput.addEventListener('change', (e) => handleImageUpload(e.target.files));
@@ -707,10 +962,22 @@
       uploadArea.classList.remove('dragover');
     });
     
+// there's a chicken in the code
+//              |
+//             o o
+
+
     uploadArea.addEventListener('drop', (e) => {
       e.preventDefault();
       uploadArea.classList.remove('dragover');
       handleImageUpload(e.dataTransfer.files);
+    });
+
+    // GIF Events
+    gifBtn.addEventListener('click', toggleGifPanel);
+    gifSearchBtn.addEventListener('click', searchGifs);
+    gifSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') searchGifs();
     });
 
     // Voice Chat Events
@@ -737,6 +1004,7 @@
       if (inVoiceChat) {
         leaveVoiceChat();
       }
+      setTyping(false);
     });
 
     // Initialize
