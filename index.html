@@ -8,7 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&display=swap" rel="stylesheet">
   <style>
-    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; --admin:#dc2626; }
+    :root { --bg:#0f1220; --card:#161a2b; --pill:#0d6efd22; --accent:#7dd3fc; --muted:#a3aed0; --text:#e6e9ff; --success:#22c55e; --danger:#ef4444; --warning:#f59e0b; --admin:#dc2626; --discord:#5865f2; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: Inter, system-ui, -apple-system, Segoe UI, Roboto, Arial, sans-serif; background: linear-gradient(180deg, #0b0e1a, #090c17); color: var(--text); }
     .wrap { max-width: 1200px; margin: 0 auto; padding: 24px; display: grid; grid-template-columns: 1fr 280px; gap: 20px; }
@@ -39,14 +39,25 @@
     #messages { height: min(50vh, 400px); overflow-y: auto; background: #0b0f20; padding: 8px; border-radius: 12px; border: 1px solid #1b2144; }
     .msg { display:grid; gap:4px; padding: 10px 12px; background: #0e1329; border: 1px solid #20264a; border-radius: 12px; margin: 8px; }
     .msg-admin { border-color: var(--admin); background: rgba(220, 38, 38, 0.1); }
+    .msg-discord { border-color: var(--discord); background: rgba(88, 101, 242, 0.1); }
     .msg-image { max-width: 300px; max-height: 200px; border-radius: 8px; margin-top: 8px; cursor: pointer; }
     .meta { display:flex; gap:8px; align-items:center; font-size: 12px; color: var(--muted); }
     .name { font-weight: 700; color: var(--accent); }
     .name-admin { color: var(--admin) !important; }
+    .name-discord { color: var(--discord) !important; }
     .text-admin { color: #fca5a5; }
+    .text-discord { color: #c7d2fe; }
     .time { opacity:.8; }
     .you { border-color: #2b375f; background: #10183a; }
     .status { font-size: 12px; color: var(--muted); padding: 4px 8px; background: var(--pill); border: 1px solid #2a3163; border-radius: 999px; }
+    .discord-indicator { 
+      background: var(--discord); 
+      color: white; 
+      padding: 2px 6px; 
+      border-radius: 4px; 
+      font-size: 10px; 
+      font-weight: 600;
+    }
     .vc-controls { display: grid; gap: 8px; }
     .vc-buttons { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .vc-participants { max-height: 200px; overflow-y: auto; }
@@ -60,6 +71,16 @@
     .verification-screen { position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(11, 14, 26, 0.95); display: flex; align-items: center; justify-content: center; z-index: 1000; }
     .verification-card { background: var(--card); border: 1px solid #1f2440; border-radius: 16px; padding: 32px; max-width: 400px; width: 90%; text-align: center; }
     footer { text-align:center; color:#778; font-size: 12px; margin-top: 16px; grid-column: 1 / -1; }
+    
+    /* Discord Integration Styles */
+    .discord-status {
+      background: var(--discord);
+      color: white;
+      padding: 4px 8px;
+      border-radius: 6px;
+      font-size: 11px;
+      font-weight: 600;
+    }
     
     /* Typing indicator styles */
     #typingIndicator { 
@@ -190,6 +211,7 @@
         <div class="row" style="gap:10px">
           <div class="title">😛 Pleb</div>
           <div id="conn" class="status" title="Connection status">● Connecting…</div>
+          <div id="discordStatus" class="discord-status" style="display: none;">Discord Connected</div>
         </div>
         <button id="clearBtn" title="Clear local data">Reset</button>
       </header>
@@ -281,7 +303,7 @@
     </div>
 
     <footer>
-      Built with Firebase Realtime Database · Be nice, stay cozy ✨
+      Built with Firebase Realtime Database · Discord Integration Active · Be nice, stay cozy ✨
     </footer>
   </div>
 
@@ -312,6 +334,9 @@
     
     // GIF API
     const GIPHY_KEY = "bDiYI9SyxC1DGIdqZe3ZdbnFsOHJGlBm";
+    
+    // Discord Integration Server URL - CHANGE THIS TO YOUR SERVER URL
+    const DISCORD_SERVER_URL = "https://plebious-github-io.onrender.com";
 
     // DOM Elements
     const verificationScreen = document.getElementById('verificationScreen');
@@ -328,6 +353,7 @@
     const sendBtn = document.getElementById('sendBtn');
     const listEl = document.getElementById('messages');
     const connEl = document.getElementById('conn');
+    const discordStatusEl = document.getElementById('discordStatus');
     const imageInput = document.getElementById('imageInput');
     const imageBtn = document.getElementById('imageBtn');
     const uploadArea = document.getElementById('uploadArea');
@@ -365,6 +391,9 @@
     // Typing state
     let typingTimeout;
     let isTyping = false;
+    
+    // Discord connection state
+    let discordConnected = false;
 
     // Helpers
     const STORAGE_KEY = 'pleb_chat_name';
@@ -376,6 +405,56 @@
     const kickedUsersRef = ref(db, 'kicked_users');
     const typingRef = ref(db, 'typing');
     const userTypingRef = ref(db, `typing/${userId}`);
+
+    // Discord Integration Functions
+    async function sendToDiscord(name, text, imageData = null) {
+      if (!discordConnected) return;
+      
+      try {
+        const response = await fetch(`${DISCORD_SERVER_URL}/send-to-discord`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            name: name,
+            text: text,
+            imageData: imageData
+          })
+        });
+        
+        if (response.ok) {
+          console.log('Message sent to Discord successfully');
+        } else {
+          console.error('Failed to send message to Discord');
+        }
+      } catch (error) {
+        console.error('Error sending to Discord:', error);
+        setDiscordStatus(false);
+      }
+    }
+
+    async function checkDiscordConnection() {
+      try {
+        const response = await fetch(`${DISCORD_SERVER_URL}/health`);
+        if (response.ok) {
+          const data = await response.json();
+          setDiscordStatus(data.discord === true);
+          return data.discord === true;
+        }
+      } catch (error) {
+        console.error('Discord server connection error:', error);
+      }
+      setDiscordStatus(false);
+      return false;
+    }
+
+    function setDiscordStatus(connected) {
+      discordConnected = connected;
+      discordStatusEl.style.display = connected ? 'block' : 'none';
+      discordStatusEl.textContent = connected ? 'Discord Connected' : 'Discord Offline';
+      discordStatusEl.className = connected ? 'discord-status' : 'status';
+    }
 
     // Password Verification
     function checkPassword() {
@@ -468,16 +547,16 @@
       } catch (_) { return '…'; }
     }
 
-    function msgElement({ name, text, timestamp, imageData, isAdmin }) {
+    function msgElement({ name, text, timestamp, imageData, isAdmin, isDiscord, discordAvatar }) {
       const me = getName();
       const root = document.createElement('div');
-      root.className = 'msg' + (name === me ? ' you' : '') + (isAdmin ? ' msg-admin' : '');
+      root.className = 'msg' + (name === me ? ' you' : '') + (isAdmin ? ' msg-admin' : '') + (isDiscord ? ' msg-discord' : '');
 
       const meta = document.createElement('div');
       meta.className = 'meta';
 
       const nameEl = document.createElement('span');
-      nameEl.className = 'name' + (isAdmin ? ' name-admin' : '');
+      nameEl.className = 'name' + (isAdmin ? ' name-admin' : '') + (isDiscord ? ' name-discord' : '');
       nameEl.textContent = name || 'anon';
 
       const dot = document.createElement('span');
@@ -488,11 +567,21 @@
       timeEl.textContent = timestamp ? formatTime(timestamp) : 'sending…';
 
       meta.append(nameEl, dot, timeEl);
+
+      // Add Discord indicator if message is from Discord
+      if (isDiscord) {
+        const discordIndicator = document.createElement('span');
+        discordIndicator.className = 'discord-indicator';
+        discordIndicator.textContent = 'Discord';
+        meta.appendChild(document.createElement('span')); // spacer
+        meta.appendChild(discordIndicator);
+      }
+
       root.appendChild(meta);
 
       if (text) {
         const textEl = document.createElement('div');
-        textEl.className = isAdmin ? 'text-admin' : '';
+        textEl.className = isAdmin ? 'text-admin' : isDiscord ? 'text-discord' : '';
         textEl.textContent = text;
         root.appendChild(textEl);
       }
@@ -675,7 +764,13 @@
         if (text) messageData.text = text;
         if (imageData) messageData.imageData = imageData;
         
+        // Send to Firebase
         await push(messagesRef, messageData);
+        
+        // Send to Discord if connected
+        if (discordConnected) {
+          await sendToDiscord(name, text, imageData);
+        }
       } catch (e) {
         console.error(e);
         alert('Failed to send. Check connection.');
@@ -820,6 +915,12 @@
     }
 
     function initializeMainApp() {
+      // Check Discord connection status
+      checkDiscordConnection();
+      
+      // Periodically check Discord connection
+      setInterval(checkDiscordConnection, 30000); // Check every 30 seconds
+      
       // Connection badge
       onValue(presenceRef, (snap) => {
         const connected = !!snap.val();
@@ -836,7 +937,9 @@
           text: v.text, 
           timestamp: ts,
           imageData: v.imageData,
-          isAdmin: v.isAdmin || false
+          isAdmin: v.isAdmin || false,
+          isDiscord: v.isDiscord || false,
+          discordAvatar: v.discordAvatar
         }));
       });
 
@@ -961,11 +1064,6 @@
     uploadArea.addEventListener('dragleave', () => {
       uploadArea.classList.remove('dragover');
     });
-    
-// there's a chicken in the code
-//              |
-//             o o
-
 
     uploadArea.addEventListener('drop', (e) => {
       e.preventDefault();
