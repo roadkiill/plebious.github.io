@@ -1,190 +1,4 @@
-    
-    const nameInput = document.getElementById('displayName');
-    const saveNameBtn = document.getElementById('saveNameBtn');
-    const resetBtn = document.getElementById('clearBtn');
-    const msgInput = document.getElementById('messageInput');
-    const sendBtn = document.getElementById('sendBtn');
-    const listEl = document.getElementById('messages');
-    const connEl = document.getElementById('conn');
-    const imageInput = document.getElementById('imageInput');
-    const imageBtn = document.getElementById('imageBtn');
-    const uploadArea = document.getElementById('uploadArea');
-    const typingIndicator = document.getElementById('typingIndicator');
-    const onlineCount = document.getElementById('onlineCount');
-    const onlineUsersList = document.getElementById('onlineUsersList');
-    const userCount = document.getElementById('userCount');
-    
-    // New feature elements
-    const searchMessages = document.getElementById('searchMessages');
-    const searchBtn = document.getElementById('searchBtn');
-    const replyIndicator = document.getElementById('replyIndicator');
-    const replyText = document.getElementById('replyText');
-    const cancelReply = document.getElementById('cancelReply');
-    const scrollToBottom = document.getElementById('scrollToBottom');
-    const darkBtn = document.getElementById('darkBtn');
-    const lightBtn = document.getElementById('lightBtn');
-    const autoScroll = document.getElementById('autoScroll');
-    const soundNotifications = document.getElementById('soundNotifications');
-    const testSoundBtn = document.getElementById('testSoundBtn');
-    const notificationVolume = document.getElementById('notificationVolume');
-    const notificationVolumeValue = document.getElementById('notificationVolumeValue');
-    const compactMode = document.getElementById('compactMode');
-    const messageLimit = document.getElementById('messageLimit');
-    const messageLimitValue = document.getElementById('messageLimitValue');
-    
-    // GIF Elements
-    const gifBtn = document.getElementById('gifBtn');
-    const gifPanel = document.getElementById('gifPanel');
-    const gifSearchInput = document.getElementById('gifSearchInput');
-    const gifSearchBtn = document.getElementById('gifSearchBtn');
-    const gifResults = document.getElementById('gifResults');
-    
-    // Emoji Elements
-    const emojiBtn = document.getElementById('emojiBtn');
-    const emojiPanel = document.getElementById('emojiPanel');
-    const emojiSearch = document.getElementById('emojiSearch');
-    const emojiGrid = document.getElementById('emojiGrid');
-    
-    // Voice Chat Elements
-    const joinVcBtn = document.getElementById('joinVcBtn');
-    const vcButtons = document.getElementById('vcButtons');
-    const muteBtn = document.getElementById('muteBtn');
-    const deafenBtn = document.getElementById('deafenBtn');
-    const settingsBtn = document.getElementById('settingsBtn');
-    const leaveVcBtn = document.getElementById('leaveVcBtn');
-    const participantsCard = document.getElementById('participantsCard');
-    const participantsList = document.getElementById('participantsList');
-    const participantCount = document.getElementById('participantCount');
-    const settingsCard = document.getElementById('settingsCard');
-    const volumeSlider = document.getElementById('volumeSlider');
-    const volumeValue = document.getElementById('volumeValue');
-    const testMicBtn = document.getElementById('testMicBtn');
-
-    // App State
-    let inVoiceChat = false;
-    let isMuted = false;
-    let isDeafened = false;
-    let mediaStream = null;
-    let userId = Math.random().toString(36).substr(2, 9);
-    let typingTimeout;
-    let isTyping = false;
-    let currentReply = null;
-    let allMessages = [];
-    let isSearching = false;
-    let currentTheme = localStorage.getItem('pleb_theme') || 'dark';
-    let currentMessageLimit = parseInt(localStorage.getItem('pleb_message_limit')) || 200;
-    let currentNotificationVolume = parseInt(localStorage.getItem('pleb_notification_volume')) || 50;
-    let windowFocused = true;
-    let lastUserActivity = Date.now();
-
-    // Helpers
-    const STORAGE_KEY = 'pleb_chat_name';
-    const VERIFIED_KEY = 'pleb_chat_verified';
-    const messagesRef = ref(db, 'messages');
-    const presenceRef = ref(db, '.info/connected');
-    const voiceParticipantsRef = ref(db, 'voice_participants');
-    const userVoiceRef = ref(db, `voice_participants/${userId}`);
-    const kickedUsersRef = ref(db, 'kicked_users');
-    const typingRef = ref(db, 'typing');
-    const userTypingRef = ref(db, `typing/${userId}`);
-    const onlineUsersRef = ref(db, 'online_users');
-    const userOnlineRef = ref(db, `online_users/${userId}`);
-
-    // Initialize theme
-    document.documentElement.setAttribute('data-theme', currentTheme);
-    if (currentTheme === 'light') {
-      lightBtn.classList.add('active');
-      darkBtn.classList.remove('active');
-    }
-
-    // Initialize message limit
-    messageLimit.value = currentMessageLimit;
-    messageLimitValue.textContent = currentMessageLimit;
-
-    // Initialize notification volume
-    notificationVolume.value = currentNotificationVolume;
-    notificationVolumeValue.textContent = currentNotificationVolume + '%';
-
-    // Focus tracking
-    window.addEventListener('focus', () => {
-      windowFocused = true;
-      lastUserActivity = Date.now();
-      updateUserStatus();
-    });
-
-    window.addEventListener('blur', () => {
-      windowFocused = false;
-      updateUserStatus();
-    });
-
-    // Activity tracking
-    document.addEventListener('mousemove', () => {
-      lastUserActivity = Date.now();
-    });
-    document.addEventListener('keypress', () => {
-      lastUserActivity = Date.now();
-    });
-    document.addEventListener('click', () => {
-      lastUserActivity = Date.now();
-    });
-
-    // Enhanced notification system
-    function createNotificationSound(soundType = 'message') {
-      try {
-        const sound = NOTIFICATION_SOUNDS[soundType] || NOTIFICATION_SOUNDS.message;
-        const audio = new Audio(sound.data);
-        audio.volume = currentNotificationVolume / 100;
-        return audio;
-      } catch (e) {
-        console.error('Error creating notification sound:', e);
-        return null;
-      }
-    }
-
-    function playNotificationSound(type = 'message') {
-      if (!soundNotifications.checked) return;
-      
-      try {
-        const audio = createNotificationSound(type);
-        if (audio) {
-          audio.play().catch(err => console.log('Sound play failed:', err));
-        }
-      } catch (e) {
-        console.error('Error playing notification:', e);
-      }
-    }
-
-    function testNotificationSound() {
-      playNotificationSound('message');
-      flashStatus('🔊 Sound test!');
-    }
-
-    // User status management
-    function getUserStatus() {
-      if (!windowFocused) return 'unfocused';
-      const timeSinceActivity = Date.now() - lastUserActivity;
-      if (timeSinceActivity > 30000) return 'unfocused'; // 30 seconds
-      return 'online';
-    }
-
-    function updateUserStatus() {
-      const name = getName();
-      if (!name) return;
-
-      const status = getUserStatus();
-      set(userOnlineRef, {
-        name: name,
-        status: status,
-        lastSeen: serverTimestamp(),
-        userId: userId
-      }).catch(err => console.error('Status update error:', err));
-    }
-
-    // Update user status every 10 seconds
-    setInterval(updateUserStatus, 10000);
-
-    function renderOnlineUsers(users) {
-      onlineUsersList.innerHTML =<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -208,15 +22,12 @@
     .section { padding: 16px; border-bottom: 1px solid #1f2440; }
     .section:last-child { border-bottom: 0; }
     label { font-size: 12px; color: var(--muted); display:block; margin-bottom: 6px; }
-    input[type="text"], input[type="password"], input[type="number"], select { width: 100%; padding: 12px 14px; border-radius: 12px; background: #0e1222; border: 1px solid #262c4f; color: var(--text); outline: none; }
+    input[type="text"], input[type="password"] { width: 100%; padding: 12px 14px; border-radius: 12px; background: #0e1222; border: 1px solid #262c4f; color: var(--text); outline: none; }
     input[type="text"]::placeholder, input[type="password"]::placeholder { color: #6b7196; }
     input[type="file"] { display: none; }
-    input[type="range"] { width: 100%; accent-color: var(--accent); }
-    input[type="checkbox"] { accent-color: var(--accent); }
     button { padding: 10px 14px; border-radius: 12px; border: 1px solid #2a3163; background: #1b2150; color: var(--text); font-weight: 600; cursor: pointer; transition: transform .05s ease, background .2s; }
     button:hover { background: #232a6a; }
     button:active { transform: translateY(1px); }
-    button:disabled { opacity: 0.5; cursor: not-allowed; }
     button.success { background: var(--success); border-color: var(--success); color: white; }
     button.success:hover { background: #16a34a; }
     button.danger { background: var(--danger); border-color: var(--danger); color: white; }
@@ -225,16 +36,12 @@
     button.warning:hover { background: #d97706; }
     button.active { background: var(--accent); border-color: var(--accent); color: #0f1220; }
     .btn-icon { padding: 8px; min-width: 36px; display: flex; align-items: center; justify-content: center; }
-    #messages { height: min(50vh, 400px); overflow-y: auto; background: #0b0f20; padding: 8px; border-radius: 12px; border: 1px solid #1b2144; position: relative; }
-    .msg { display:grid; gap:4px; padding: 10px 12px; background: #0e1329; border: 1px solid #20264a; border-radius: 12px; margin: 8px; position: relative; }
-    .msg.compact { padding: 6px 8px; margin: 4px; }
+    #messages { height: min(50vh, 400px); overflow-y: auto; background: #0b0f20; padding: 8px; border-radius: 12px; border: 1px solid #1b2144; }
+    .msg { display:grid; gap:4px; padding: 10px 12px; background: #0e1329; border: 1px solid #20264a; border-radius: 12px; margin: 8px; }
     .msg-admin { border-color: var(--admin); background: rgba(220, 38, 38, 0.1); }
     .msg-image { max-width: 300px; max-height: 200px; border-radius: 8px; margin-top: 8px; cursor: pointer; }
-    .msg-reply-button { position: absolute; top: 8px; right: 8px; opacity: 0; transition: opacity 0.2s; padding: 4px 8px; font-size: 10px; }
-    .msg:hover .msg-reply-button { opacity: 1; }
-    .msg-reply-to { font-size: 11px; color: var(--muted); background: #1a1f3a; padding: 4px 8px; border-radius: 6px; margin-bottom: 4px; border-left: 2px solid var(--accent); }
     .meta { display:flex; gap:8px; align-items:center; font-size: 12px; color: var(--muted); }
-    .name { font-weight: 700; color: var(--accent); cursor: pointer; }
+    .name { font-weight: 700; color: var(--accent); }
     .name-admin { color: var(--admin) !important; }
     .text-admin { color: #fca5a5; }
     .time { opacity:.8; }
@@ -254,16 +61,6 @@
     .verification-card { background: var(--card); border: 1px solid #1f2440; border-radius: 16px; padding: 32px; max-width: 400px; width: 90%; text-align: center; }
     footer { text-align:center; color:#778; font-size: 12px; margin-top: 16px; grid-column: 1 / -1; }
     
-    /* Online Users List */
-    .online-users-list { max-height: 300px; overflow-y: auto; }
-    .user-item { display: flex; align-items: center; gap: 8px; padding: 8px 12px; background: #0e1329; border: 1px solid #20264a; border-radius: 8px; margin-bottom: 4px; font-size: 14px; }
-    .user-status { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
-    .user-status.online { background: var(--success); box-shadow: 0 0 4px rgba(34, 197, 94, 0.6); }
-    .user-status.unfocused { background: var(--warning); box-shadow: 0 0 4px rgba(245, 158, 11, 0.6); }
-    .user-status.offline { background: var(--muted); }
-    .user-name { flex: 1; }
-    .user-count { font-size: 10px; color: var(--success); padding: 2px 6px; background: rgba(34, 197, 94, 0.1); border-radius: 4px; border: 1px solid rgba(34, 197, 94, 0.3); }
-
     /* Typing indicator styles */
     #typingIndicator { 
       font-size: 12px; 
@@ -351,195 +148,6 @@
       color: #0f1220;
     }
     
-    /* Emoji Picker Styles */
-    #emojiPanel {
-      position: absolute;
-      bottom: 60px;
-      right: 0;
-      background: var(--card);
-      border: 1px solid #1f2440;
-      border-radius: 12px;
-      padding: 12px;
-      max-width: 320px;
-      width: 90vw;
-      max-height: 300px;
-      overflow-y: auto;
-      z-index: 100;
-      box-shadow: 0 10px 30px rgba(0,0,0,.5);
-      animation: slideUp 0.2s ease;
-    }
-    
-    @keyframes slideUp {
-      from { opacity: 0; transform: translateY(10px); }
-      to { opacity: 1; transform: translateY(0); }
-    }
-    
-    .emoji-search {
-      width: 100%;
-      margin-bottom: 8px;
-      font-size: 12px;
-      padding: 8px 10px;
-    }
-    
-    .emoji-grid {
-      display: grid;
-      grid-template-columns: repeat(8, 1fr);
-      gap: 4px;
-    }
-    
-    .emoji-item {
-      padding: 6px;
-      border-radius: 6px;
-      cursor: pointer;
-      text-align: center;
-      transition: background 0.1s ease;
-      font-size: 18px;
-      user-select: none;
-    }
-    
-    .emoji-item:hover {
-      background: rgba(125, 211, 252, 0.2);
-    }
-    
-    #emojiBtn.active {
-      background: var(--accent);
-      color: #0f1220;
-    }
-    
-    /* Theme Toggle */
-    .theme-toggle {
-      display: flex;
-      gap: 4px;
-      background: #0e1222;
-      border-radius: 8px;
-      padding: 2px;
-    }
-    
-    .theme-btn {
-      padding: 4px 8px;
-      border: none;
-      background: transparent;
-      border-radius: 6px;
-      font-size: 12px;
-    }
-    
-    .theme-btn.active {
-      background: var(--accent);
-      color: #0f1220;
-    }
-    
-    /* Light theme */
-    [data-theme="light"] {
-      --bg: #f8fafc;
-      --card: #ffffff;
-      --pill: #e2e8f022;
-      --accent: #0ea5e9;
-      --muted: #64748b;
-      --text: #1e293b;
-      --success: #10b981;
-      --danger: #ef4444;
-      --warning: #f59e0b;
-    }
-    
-    [data-theme="light"] body {
-      background: linear-gradient(180deg, #f8fafc, #e2e8f0);
-    }
-    
-    [data-theme="light"] input, [data-theme="light"] select {
-      background: #f1f5f9;
-      border-color: #cbd5e1;
-    }
-    
-    [data-theme="light"] #messages {
-      background: #f8fafc;
-      border-color: #e2e8f0;
-    }
-    
-    [data-theme="light"] .msg {
-      background: #ffffff;
-      border-color: #e2e8f0;
-    }
-    
-    [data-theme="light"] .theme-toggle {
-      background: #f1f5f9;
-    }
-    
-    /* Message Search */
-    .search-results {
-      position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
-      bottom: 0;
-      background: var(--bg);
-      z-index: 50;
-      padding: 8px;
-      border-radius: 12px;
-    }
-    
-    .search-header {
-      display: flex;
-      justify-content: space-between;
-      align-items: center;
-      margin-bottom: 8px;
-      font-size: 12px;
-      color: var(--muted);
-    }
-    
-    .close-search {
-      background: var(--danger);
-      color: white;
-      border: none;
-      border-radius: 4px;
-      padding: 4px 8px;
-      font-size: 10px;
-    }
-    
-    /* Auto-scroll button */
-    .scroll-to-bottom {
-      position: absolute;
-      bottom: 16px;
-      right: 16px;
-      background: var(--accent);
-      color: #0f1220;
-      border: none;
-      border-radius: 50%;
-      width: 40px;
-      height: 40px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      font-size: 16px;
-      box-shadow: 0 4px 12px rgba(0,0,0,0.3);
-      transition: all 0.2s ease;
-      z-index: 10;
-    }
-    
-    .scroll-to-bottom:hover {
-      transform: scale(1.1);
-    }
-    
-    .scroll-to-bottom.hidden {
-      opacity: 0;
-      pointer-events: none;
-    }
-    
-    /* Notification sound controls */
-    .sound-controls {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    
-    .sound-preview {
-      padding: 4px 8px;
-      font-size: 10px;
-      background: var(--accent);
-      color: #0f1220;
-      border-radius: 4px;
-      cursor: pointer;
-    }
-    
     @media (max-width: 768px) {
       .wrap { grid-template-columns: 1fr; }
       .sidebar { order: -1; }
@@ -547,20 +155,6 @@
       #gifResults {
         grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
         gap: 6px;
-      }
-      
-      #emojiPanel {
-        position: fixed;
-        bottom: 0;
-        left: 0;
-        right: 0;
-        border-radius: 12px 12px 0 0;
-        max-width: none;
-        width: 100%;
-      }
-      
-      .emoji-grid {
-        grid-template-columns: repeat(6, 1fr);
       }
     }
   </style>
@@ -596,15 +190,8 @@
         <div class="row" style="gap:10px">
           <div class="title">😛 Pleb</div>
           <div id="conn" class="status" title="Connection status">● Connecting…</div>
-          <div id="onlineCount" class="user-count" style="display: none;"></div>
         </div>
-        <div class="row" style="gap:8px">
-          <div class="theme-toggle">
-            <button id="darkBtn" class="theme-btn active">🌙</button>
-            <button id="lightBtn" class="theme-btn">☀️</button>
-          </div>
-          <button id="clearBtn" title="Clear local data">Reset</button>
-        </div>
+        <button id="clearBtn" title="Clear local data">Reset</button>
       </header>
 
       <div class="card">
@@ -618,20 +205,8 @@
           </div>
         </div>
 
-        <div class="section">
-          <div class="row" style="align-items:flex-end">
-            <div style="flex:1">
-              <label for="searchMessages">Search Messages</label>
-              <input id="searchMessages" type="text" placeholder="Search chat history..." />
-            </div>
-            <button id="searchBtn">🔍</button>
-          </div>
-        </div>
-
         <div class="section stack">
-          <div id="messages" aria-live="polite" aria-label="Chat messages">
-            <button id="scrollToBottom" class="scroll-to-bottom hidden">⬇️</button>
-          </div>
+          <div id="messages" aria-live="polite" aria-label="Chat messages"></div>
           <div id="typingIndicator"></div>
           
           <div class="upload-area" id="uploadArea">
@@ -652,40 +227,17 @@
             </div>
           </div>
           
-          <!-- Reply indicator -->
-          <div id="replyIndicator" style="display:none; background: rgba(125, 211, 252, 0.1); border: 1px solid var(--accent); border-radius: 8px; padding: 8px; margin-bottom: 8px; font-size: 12px;">
-            <span id="replyText"></span>
-            <button id="cancelReply" style="float: right; background: var(--danger); color: white; border: none; border-radius: 4px; padding: 2px 6px; font-size: 10px;">✕</button>
-          </div>
-          
-          <div class="row" style="position: relative;">
+          <div class="row">
             <input id="messageInput" type="text" placeholder="Type a message and press Enter…" maxlength="500" />
             <button id="imageBtn" class="btn-icon" title="Upload Image">📷</button>
-            <button id="emojiBtn" class="btn-icon" title="Add Emoji">😀</button>
             <button id="gifBtn" class="btn-icon" title="Send GIF">🎬</button>
             <button id="sendBtn">Send</button>
-            
-            <!-- Emoji Panel -->
-            <div id="emojiPanel" style="display:none;">
-              <input class="emoji-search" id="emojiSearch" placeholder="Search emojis..." />
-              <div class="emoji-grid" id="emojiGrid"></div>
-            </div>
           </div>
         </div>
       </div>
     </div>
 
     <div class="sidebar">
-      <!-- Online Users Card -->
-      <div class="card">
-        <div class="section">
-          <label>Online Users (<span id="userCount">0</span>)</label>
-          <div class="online-users-list" id="onlineUsersList">
-            <div style="text-align: center; color: var(--muted); padding: 20px;">Loading users...</div>
-          </div>
-        </div>
-      </div>
-
       <div class="card">
         <div class="section">
           <label>Voice Chat</label>
@@ -714,46 +266,15 @@
           <div class="stack">
             <div>
               <label for="micSelect">Microphone</label>
-              <select id="micSelect">
+              <select id="micSelect" style="width: 100%; padding: 8px; border-radius: 8px; background: #0e1222; border: 1px solid #262c4f; color: var(--text);">
                 <option>Default</option>
               </select>
             </div>
             <div>
               <label for="volumeSlider">Volume: <span id="volumeValue">100%</span></label>
-              <input type="range" id="volumeSlider" min="0" max="100" value="100" />
+              <input type="range" id="volumeSlider" min="0" max="100" value="100" style="width: 100%;" />
             </div>
             <button id="testMicBtn">Test Microphone</button>
-          </div>
-        </div>
-      </div>
-
-      <div class="card">
-        <div class="section">
-          <label>Chat Features</label>
-          <div class="stack">
-            <div>
-              <label for="autoScroll">Auto-scroll to bottom</label>
-              <input type="checkbox" id="autoScroll" checked />
-            </div>
-            <div>
-              <div class="sound-controls">
-                <input type="checkbox" id="soundNotifications" />
-                <label for="soundNotifications" style="margin: 0; flex: 1;">Sound notifications</label>
-                <button id="testSoundBtn" class="sound-preview">🔊 Test</button>
-              </div>
-            </div>
-            <div>
-              <label for="notificationVolume">Notification Volume: <span id="notificationVolumeValue">50%</span></label>
-              <input type="range" id="notificationVolume" min="0" max="100" value="50" />
-            </div>
-            <div>
-              <label for="compactMode">Compact message view</label>
-              <input type="checkbox" id="compactMode" />
-            </div>
-            <div>
-              <label for="messageLimit">Messages to load: <span id="messageLimitValue">200</span></label>
-              <input type="range" id="messageLimit" min="50" max="500" step="50" value="200" />
-            </div>
           </div>
         </div>
       </div>
@@ -792,6 +313,702 @@
     // GIF API
     const GIPHY_KEY = "bDiYI9SyxC1DGIdqZe3ZdbnFsOHJGlBm";
 
-    // Emoji data
-    const EMOJIS = [
-      '😀','😃','😄','😁','😆','😅','🤣','😂','🙂','🙃','😉','😊','😇','🥰','😍','🤩','😘','😗','☺️','😚','😙','🥲','😋','😛','😜','🤪','😝','🤑','🤗','🤭','🤫','🤔','🤐','🤨','😐','😑','😶','😏','😒','🙄','😬','🤥','😌','😔','😪','🤤','😴','😷','🤒','🤕','🤢','🤮','🤧','🥵','🥶','🥴','😵','🤯','🤠','🥳','🥸','😎','🤓','🧐','😕','😟','🙁','☹️','😮','😯','😲','😳','🥺','😦','😧','😨','😰','😥','😢','😭','😱','😖','😣','😞','😓','😩','
+    // DOM Elements
+    const verificationScreen = document.getElementById('verificationScreen');
+    const mainApp = document.getElementById('mainApp');
+    const passwordInput = document.getElementById('passwordInput');
+    const displayNameInput = document.getElementById('displayNameInput');
+    const enterChatBtn = document.getElementById('enterChatBtn');
+    const errorMessage = document.getElementById('errorMessage');
+    
+    const nameInput = document.getElementById('displayName');
+    const saveNameBtn = document.getElementById('saveNameBtn');
+    const resetBtn = document.getElementById('clearBtn');
+    const msgInput = document.getElementById('messageInput');
+    const sendBtn = document.getElementById('sendBtn');
+    const listEl = document.getElementById('messages');
+    const connEl = document.getElementById('conn');
+    const imageInput = document.getElementById('imageInput');
+    const imageBtn = document.getElementById('imageBtn');
+    const uploadArea = document.getElementById('uploadArea');
+    const typingIndicator = document.getElementById('typingIndicator');
+    
+    // GIF Elements
+    const gifBtn = document.getElementById('gifBtn');
+    const gifPanel = document.getElementById('gifPanel');
+    const gifSearchInput = document.getElementById('gifSearchInput');
+    const gifSearchBtn = document.getElementById('gifSearchBtn');
+    const gifResults = document.getElementById('gifResults');
+    
+    // Voice Chat Elements
+    const joinVcBtn = document.getElementById('joinVcBtn');
+    const vcButtons = document.getElementById('vcButtons');
+    const muteBtn = document.getElementById('muteBtn');
+    const deafenBtn = document.getElementById('deafenBtn');
+    const settingsBtn = document.getElementById('settingsBtn');
+    const leaveVcBtn = document.getElementById('leaveVcBtn');
+    const participantsCard = document.getElementById('participantsCard');
+    const participantsList = document.getElementById('participantsList');
+    const participantCount = document.getElementById('participantCount');
+    const settingsCard = document.getElementById('settingsCard');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volumeValue = document.getElementById('volumeValue');
+    const testMicBtn = document.getElementById('testMicBtn');
+
+    // Voice Chat State
+    let inVoiceChat = false;
+    let isMuted = false;
+    let isDeafened = false;
+    let mediaStream = null;
+    let userId = Math.random().toString(36).substr(2, 9);
+
+    // Typing state
+    let typingTimeout;
+    let isTyping = false;
+
+    // Helpers
+    const STORAGE_KEY = 'pleb_chat_name';
+    const VERIFIED_KEY = 'pleb_chat_verified';
+    const messagesRef = ref(db, 'messages');
+    const presenceRef = ref(db, '.info/connected');
+    const voiceParticipantsRef = ref(db, 'voice_participants');
+    const userVoiceRef = ref(db, `voice_participants/${userId}`);
+    const kickedUsersRef = ref(db, 'kicked_users');
+    const typingRef = ref(db, 'typing');
+    const userTypingRef = ref(db, `typing/${userId}`);
+
+    // Password Verification
+    function checkPassword() {
+      const password = passwordInput.value.trim();
+      const name = displayNameInput.value.trim();
+      
+      if (!password) {
+        showError('Please enter the password');
+        return;
+      }
+      
+      if (!name) {
+        showError('Please enter a display name');
+        return;
+      }
+      
+      if (password === CHAT_PASSWORD) {
+        // Correct password!
+        localStorage.setItem(VERIFIED_KEY, 'true');
+        localStorage.setItem(STORAGE_KEY, name);
+        
+        // Show main app
+        verificationScreen.style.display = 'none';
+        mainApp.style.display = 'grid';
+        nameInput.value = name;
+        
+        initializeMainApp();
+      } else {
+        showError('Incorrect password. Try again.');
+        passwordInput.value = '';
+        passwordInput.focus();
+      }
+    }
+
+    function showError(message) {
+      errorMessage.textContent = '❌ ' + message;
+      errorMessage.style.display = 'block';
+      setTimeout(() => {
+        errorMessage.style.display = 'none';
+      }, 3000);
+    }
+
+    function checkExistingVerification() {
+      const isVerified = localStorage.getItem(VERIFIED_KEY);
+      const savedName = localStorage.getItem(STORAGE_KEY);
+      
+      if (isVerified === 'true' && savedName) {
+        // Already verified, show main app
+        verificationScreen.style.display = 'none';
+        mainApp.style.display = 'grid';
+        nameInput.value = savedName;
+        initializeMainApp();
+      } else {
+        // Show verification screen
+        passwordInput.focus();
+      }
+    }
+
+    function saveName() {
+      const val = (nameInput.value || '').trim();
+      if (!val) return alert('Enter a display name first.');
+      localStorage.setItem(STORAGE_KEY, val);
+      flashStatus('Saved!');
+      nameInput.blur();
+    }
+
+    function getName() {
+      return (localStorage.getItem(STORAGE_KEY) || '').trim();
+    }
+
+    function flashStatus(text) {
+      connEl.textContent = text;
+      setTimeout(() => updateConnBadge(), 1200);
+    }
+
+    function updateConnBadge(connected) {
+      if (typeof connected === 'boolean') {
+        connEl.textContent = connected ? '● Online' : '● Offline';
+        return;
+      }
+      connEl.textContent = connEl.textContent.includes('●') ? connEl.textContent : '● Online';
+    }
+
+    function formatTime(ts) {
+      try {
+        const d = new Date(ts);
+        const now = new Date();
+        const sameDay = d.toDateString() === now.toDateString();
+        return sameDay ? d.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'}) : d.toLocaleString();
+      } catch (_) { return '…'; }
+    }
+
+    function msgElement({ name, text, timestamp, imageData, isAdmin }) {
+      const me = getName();
+      const root = document.createElement('div');
+      root.className = 'msg' + (name === me ? ' you' : '') + (isAdmin ? ' msg-admin' : '');
+
+      const meta = document.createElement('div');
+      meta.className = 'meta';
+
+      const nameEl = document.createElement('span');
+      nameEl.className = 'name' + (isAdmin ? ' name-admin' : '');
+      nameEl.textContent = name || 'anon';
+
+      const dot = document.createElement('span');
+      dot.textContent = '•';
+
+      const timeEl = document.createElement('span');
+      timeEl.className = 'time';
+      timeEl.textContent = timestamp ? formatTime(timestamp) : 'sending…';
+
+      meta.append(nameEl, dot, timeEl);
+      root.appendChild(meta);
+
+      if (text) {
+        const textEl = document.createElement('div');
+        textEl.className = isAdmin ? 'text-admin' : '';
+        textEl.textContent = text;
+        root.appendChild(textEl);
+      }
+
+      if (imageData) {
+        const img = document.createElement('img');
+        img.src = imageData;
+        img.className = 'msg-image';
+        img.onclick = () => window.open(imageData, '_blank');
+        root.appendChild(img);
+      }
+
+      return root;
+    }
+
+    function appendAndScroll(el) {
+      listEl.appendChild(el);
+      const nearBottom = listEl.scrollTop + listEl.clientHeight >= listEl.scrollHeight - 80;
+      if (nearBottom) listEl.scrollTop = listEl.scrollHeight;
+    }
+
+    // Typing indicator functions
+    function updateTypingIndicator(typingData) {
+      const me = getName();
+      const others = Object.values(typingData || {}).filter(name => name && name !== me);
+      
+      console.log('Typing data:', typingData, 'Others typing:', others); // Debug log
+      
+      if (others.length === 0) {
+        typingIndicator.textContent = '';
+      } else if (others.length === 1) {
+        typingIndicator.textContent = `${others[0]} is typing`;
+      } else if (others.length > 5) {
+        typingIndicator.textContent = `dayum that's a lotta people typing`;
+      } else {
+        // For 2-5 people: "User, User, and User are typing"
+        const lastUser = others.pop();
+        const otherUsers = others.join(', ');
+        typingIndicator.textContent = `${otherUsers}, and ${lastUser} are typing`;
+      }
+    }
+
+    function setTyping(typing) {
+      const name = getName();
+      if (!name) return;
+      
+      console.log('Setting typing:', typing, 'for user:', name); // Debug log
+      
+      if (typing && !isTyping) {
+        isTyping = true;
+        set(userTypingRef, name).catch(err => console.error('Typing set error:', err));
+      } else if (!typing && isTyping) {
+        isTyping = false;
+        remove(userTypingRef).catch(err => console.error('Typing remove error:', err));
+      }
+    }
+
+    function handleTypingInput() {
+      const name = getName();
+      if (!name) return;
+
+      // Only trigger if there's actual content or user is actively typing
+      if (msgInput.value.length > 0) {
+        setTyping(true);
+      }
+
+      // Clear typing status after 2 seconds of inactivity (shorter for more responsiveness)
+      clearTimeout(typingTimeout);
+      typingTimeout = setTimeout(() => {
+        setTyping(false);
+      }, 2000);
+    }
+
+    // GIF Functions
+    async function fetchGifs(endpoint) {
+      gifResults.innerHTML = '<div class="gif-loading">Loading GIFs...</div>';
+      
+      try {
+        const response = await fetch(endpoint);
+        const data = await response.json();
+        
+        gifResults.innerHTML = '';
+        
+        if (!data.data || data.data.length === 0) {
+          gifResults.innerHTML = '<div class="gif-empty">No GIFs found. Try a different search term.</div>';
+          return;
+        }
+        
+        data.data.forEach(gif => {
+          const img = document.createElement('img');
+          img.src = gif.images.fixed_width_small.url;
+          img.className = 'gif-item';
+          img.alt = gif.title || 'GIF';
+          img.onclick = () => {
+            sendMessage(gif.images.original.url);
+            toggleGifPanel(); // Close panel after selecting
+          };
+          gifResults.appendChild(img);
+        });
+      } catch (error) {
+        console.error('Error fetching GIFs:', error);
+        gifResults.innerHTML = '<div class="gif-error">Failed to load GIFs. Please try again.</div>';
+      }
+    }
+
+    function loadTrendingGifs() {
+      fetchGifs(`https://api.giphy.com/v1/gifs/trending?api_key=${GIPHY_KEY}&limit=24&rating=pg`);
+    }
+
+    function searchGifs() {
+      const query = gifSearchInput.value.trim();
+      if (!query) {
+        loadTrendingGifs();
+        return;
+      }
+      fetchGifs(`https://api.giphy.com/v1/gifs/search?api_key=${GIPHY_KEY}&q=${encodeURIComponent(query)}&limit=24&rating=pg`);
+    }
+
+    function toggleGifPanel() {
+      const isVisible = gifPanel.style.display !== 'none';
+      gifPanel.style.display = isVisible ? 'none' : 'block';
+      gifBtn.classList.toggle('active', !isVisible);
+      
+      if (!isVisible) {
+        loadTrendingGifs();
+        gifSearchInput.focus();
+      }
+    }
+
+    // Check if user is kicked
+    function checkIfKicked(username, callback) {
+      if (!username) {
+        callback(false);
+        return;
+      }
+      
+      try {
+        onValue(ref(db, `kicked_users/${username}`), (snapshot) => {
+          callback(snapshot.exists());
+        }, { onlyOnce: true });
+      } catch (error) {
+        console.error('Error checking kick status:', error);
+        callback(false);
+      }
+    }
+
+    async function sendMessage(imageData = null) {
+      const name = getName();
+      const text = (msgInput.value || '').trim();
+      if (!name) return alert('Set your display name first!');
+      if (!text && !imageData) return;
+      
+      // Check if user is kicked before sending
+      try {
+        const kickedSnapshot = await new Promise((resolve) => {
+          onValue(ref(db, `kicked_users/${name}`), resolve, { onlyOnce: true });
+        });
+        
+        if (kickedSnapshot.exists()) {
+          alert('You have been kicked from the chat and cannot send messages.');
+          msgInput.disabled = true;
+          sendBtn.disabled = true;
+          msgInput.placeholder = "You have been kicked from the chat";
+          return;
+        }
+      } catch (error) {
+        console.log('Could not check kick status, allowing message');
+      }
+      
+      msgInput.value = '';
+      setTyping(false); // Clear typing when sending
+      msgInput.focus();
+
+      try {
+        const messageData = {
+          name,
+          timestamp: serverTimestamp(),
+        };
+        
+        if (text) messageData.text = text;
+        if (imageData) messageData.imageData = imageData;
+        
+        await push(messagesRef, messageData);
+      } catch (e) {
+        console.error(e);
+        alert('Failed to send. Check connection.');
+      }
+    }
+
+    function handleImageUpload(files) {
+      Array.from(files).forEach(file => {
+        if (file.type.startsWith('image/') && file.size < 5 * 1024 * 1024) { // 5MB limit
+          const reader = new FileReader();
+          reader.onload = (e) => sendMessage(e.target.result);
+          reader.readAsDataURL(file);
+        } else {
+          alert('Please select images under 5MB only.');
+        }
+      });
+    }
+
+    // Voice Chat Functions
+    async function joinVoiceChat() {
+      const name = getName();
+      if (!name) return alert('Set your display name first!');
+      
+      // Check if user is kicked before joining voice
+      try {
+        const kickedSnapshot = await new Promise((resolve) => {
+          onValue(ref(db, `kicked_users/${name}`), resolve, { onlyOnce: true });
+        });
+        
+        if (kickedSnapshot.exists()) {
+          alert('You have been kicked from the chat and cannot join voice chat.');
+          return;
+        }
+      } catch (error) {
+        console.log('Could not check kick status, allowing voice chat');
+      }
+      
+      try {
+        mediaStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        inVoiceChat = true;
+        
+        // Update UI
+        joinVcBtn.style.display = 'none';
+        vcButtons.style.display = 'grid';
+        participantsCard.style.display = 'block';
+        
+        // Add to Firebase
+        await set(userVoiceRef, {
+          name: name,
+          muted: false,
+          joinedAt: serverTimestamp()
+        });
+        
+        // Clean up on disconnect
+        onDisconnect(userVoiceRef).remove();
+        
+        flashStatus('Joined voice chat!');
+      } catch (error) {
+        console.error('Error joining voice chat:', error);
+        alert('Could not access microphone. Please check permissions.');
+      }
+    }
+
+    async function leaveVoiceChat() {
+      if (mediaStream) {
+        mediaStream.getTracks().forEach(track => track.stop());
+        mediaStream = null;
+      }
+      
+      await remove(userVoiceRef);
+      
+      inVoiceChat = false;
+      isMuted = false;
+      isDeafened = false;
+      
+      // Update UI
+      joinVcBtn.style.display = 'block';
+      vcButtons.style.display = 'none';
+      participantsCard.style.display = 'none';
+      settingsCard.style.display = 'none';
+      muteBtn.textContent = '🎤';
+      deafenBtn.textContent = '🔊';
+      muteBtn.classList.remove('active');
+      deafenBtn.classList.remove('active');
+      
+      flashStatus('Left voice chat');
+    }
+
+    function toggleMute() {
+      if (!inVoiceChat) return;
+      
+      isMuted = !isMuted;
+      muteBtn.textContent = isMuted ? '🔇' : '🎤';
+      muteBtn.classList.toggle('active', isMuted);
+      
+      if (mediaStream) {
+        mediaStream.getAudioTracks().forEach(track => {
+          track.enabled = !isMuted;
+        });
+      }
+      
+      // Update Firebase
+      set(ref(db, `voice_participants/${userId}/muted`), isMuted);
+    }
+
+    function toggleDeafen() {
+      isDeafened = !isDeafened;
+      deafenBtn.textContent = isDeafened ? '🔇' : '🔊';
+      deafenBtn.classList.toggle('active', isDeafened);
+      
+      // If deafened, also mute
+      if (isDeafened && !isMuted) {
+        toggleMute();
+      }
+    }
+
+    function toggleSettings() {
+      const isVisible = settingsCard.style.display !== 'none';
+      settingsCard.style.display = isVisible ? 'none' : 'block';
+    }
+
+    function updateParticipants(participants) {
+      participantsList.innerHTML = '';
+      const count = Object.keys(participants).length;
+      participantCount.textContent = count;
+      
+      Object.entries(participants).forEach(([id, data]) => {
+        const div = document.createElement('div');
+        div.className = 'participant';
+        
+        const indicator = document.createElement('div');
+        indicator.className = 'speaking-indicator';
+        indicator.style.visibility = data.muted ? 'hidden' : 'visible';
+        
+        const name = document.createElement('span');
+        name.textContent = data.name || 'Anonymous';
+        
+        div.appendChild(indicator);
+        div.appendChild(name);
+        participantsList.appendChild(div);
+      });
+    }
+
+    function initializeMainApp() {
+      // Connection badge
+      onValue(presenceRef, (snap) => {
+        const connected = !!snap.val();
+        updateConnBadge(connected);
+      });
+
+      // Stream messages (latest 200)
+      const recent = query(messagesRef, orderByChild('timestamp'), limitToLast(200));
+      onChildAdded(recent, (snap) => {
+        const v = snap.val() || {};
+        const ts = typeof v.timestamp === 'number' ? v.timestamp : Date.now();
+        appendAndScroll(msgElement({ 
+          name: v.name, 
+          text: v.text, 
+          timestamp: ts,
+          imageData: v.imageData,
+          isAdmin: v.isAdmin || false
+        }));
+      });
+
+      // Listen for typing indicators
+      onValue(typingRef, (snapshot) => {
+        updateTypingIndicator(snapshot.val());
+      });
+
+      // Listen for voice participants
+      onValue(voiceParticipantsRef, (snap) => {
+        const participants = snap.val() || {};
+        if (inVoiceChat) {
+          updateParticipants(participants);
+        }
+      });
+
+      // Real-time kick monitoring
+      const currentName = getName();
+      if (currentName) {
+        try {
+          onValue(ref(db, `kicked_users/${currentName}`), (snapshot) => {
+            if (snapshot.exists()) {
+              // User has been kicked!
+              alert('You have been kicked from the chat by an administrator.');
+              
+              // Disable chat functionality immediately
+              msgInput.disabled = true;
+              sendBtn.disabled = true;
+              imageBtn.disabled = true;
+              gifBtn.disabled = true;
+              msgInput.placeholder = "You have been kicked from the chat";
+              msgInput.style.backgroundColor = '#2d1b1b';
+              
+              // Clear typing status
+              setTyping(false);
+              
+              // Leave voice chat if in it
+              if (inVoiceChat) {
+                leaveVoiceChat();
+              }
+              
+              // Disable voice chat button
+              joinVcBtn.disabled = true;
+              joinVcBtn.textContent = '❌ Kicked from Chat';
+              joinVcBtn.classList.add('danger');
+              
+              // Close GIF panel
+              if (gifPanel.style.display !== 'none') {
+                toggleGifPanel();
+              }
+              
+              // Show kick message in status
+              flashStatus('❌ Kicked');
+            } else {
+              // User is not kicked, ensure everything is enabled
+              if (msgInput.disabled) {
+                msgInput.disabled = false;
+                sendBtn.disabled = false;
+                imageBtn.disabled = false;
+                gifBtn.disabled = false;
+                msgInput.placeholder = "Type a message and press Enter…";
+                msgInput.style.backgroundColor = '#0e1222';
+                
+                joinVcBtn.disabled = false;
+                joinVcBtn.textContent = '🎤 Join Voice Chat';
+                joinVcBtn.classList.remove('danger');
+                joinVcBtn.classList.add('success');
+                
+                flashStatus('✅ Access Restored');
+              }
+            }
+          });
+        } catch (error) {
+          console.error('Error monitoring kick status:', error);
+        }
+      }
+
+      // Clean up typing status on disconnect
+      onDisconnect(userTypingRef).remove();
+    }
+
+    // Event Listeners
+    enterChatBtn.addEventListener('click', checkPassword);
+    passwordInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') checkPassword();
+    });
+    displayNameInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') checkPassword();
+    });
+
+    saveNameBtn.addEventListener('click', saveName);
+    resetBtn.addEventListener('click', () => {
+      localStorage.removeItem(STORAGE_KEY);
+      localStorage.removeItem(VERIFIED_KEY);
+      location.reload();
+    });
+    
+    sendBtn.addEventListener('click', () => sendMessage());
+    msgInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    // Typing indicator events
+    msgInput.addEventListener('input', handleTypingInput);
+    msgInput.addEventListener('focus', handleTypingInput);
+    msgInput.addEventListener('blur', () => setTyping(false));
+
+    // Image Upload Events
+    imageBtn.addEventListener('click', () => imageInput.click());
+    imageInput.addEventListener('change', (e) => handleImageUpload(e.target.files));
+    uploadArea.addEventListener('click', () => imageInput.click());
+    
+    // Drag and Drop
+    uploadArea.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      uploadArea.classList.add('dragover');
+    });
+    
+    uploadArea.addEventListener('dragleave', () => {
+      uploadArea.classList.remove('dragover');
+    });
+    
+// there's a chicken in the code
+//              |
+//             o o
+
+
+    uploadArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      uploadArea.classList.remove('dragover');
+      handleImageUpload(e.dataTransfer.files);
+    });
+
+    // GIF Events
+    gifBtn.addEventListener('click', toggleGifPanel);
+    gifSearchBtn.addEventListener('click', searchGifs);
+    gifSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') searchGifs();
+    });
+
+    // Voice Chat Events
+    joinVcBtn.addEventListener('click', joinVoiceChat);
+    leaveVcBtn.addEventListener('click', leaveVoiceChat);
+    muteBtn.addEventListener('click', toggleMute);
+    deafenBtn.addEventListener('click', toggleDeafen);
+    settingsBtn.addEventListener('click', toggleSettings);
+    
+    volumeSlider.addEventListener('input', (e) => {
+      volumeValue.textContent = e.target.value + '%';
+    });
+    
+    testMicBtn.addEventListener('click', () => {
+      if (mediaStream) {
+        flashStatus('Microphone working!');
+      } else {
+        alert('Join voice chat first to test microphone.');
+      }
+    });
+
+    // Cleanup on page unload
+    window.addEventListener('beforeunload', () => {
+      if (inVoiceChat) {
+        leaveVoiceChat();
+      }
+      setTyping(false);
+    });
+
+    // Initialize
+    checkExistingVerification();
+  </script>
+</body>
+</html>`
